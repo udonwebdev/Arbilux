@@ -1,0 +1,9 @@
+node_modules
+bot/node_modules
+bot/dist
+bot/logs
+cache
+out
+broadcast
+.git
+.env
