@@ -1,25 +1,18 @@
-import { ethers, Contract, AbiCoder } from 'ethers';
+import { ethers, AbiCoder } from 'ethers';
 import dotenv from 'dotenv';
-import { WATCH_POOLS } from '../config/pools.js';
 import { calculateMultiLenderSizing } from './math.js';
 import { ArbiluxRelayer, ExecutionIntent } from './relayer.js';
 import { TelemetryBroadcaster, TelemetryPayload } from './wsServer.js';
+import { BatchPoolScanner, ScannedPoolResult } from './batchScanner.js';
+import { WATCH_POOLS } from '../config/pools.js';
 
 dotenv.config();
-
-const UNISWAP_V3_POOL_ABI = [
-  'function slot0() external view returns (uint160 sqrtPriceX96, int24 tick, uint16 observationIndex, uint16 observationCardinality, uint16 observationCardinalityNext, uint8 feeProtocol, bool unlocked)',
-];
-
-const SUSHISWAP_PAIR_ABI = [
-  'function getReserves() external view returns (uint112 reserve0, uint112 reserve1, uint32 blockTimestampLast)',
-  'function token0() external view returns (address)',
-];
 
 class ArbiluxEngine {
   private provider: ethers.JsonRpcProvider;
   private relayer: ArbiluxRelayer | null = null;
   private broadcaster: TelemetryBroadcaster;
+  private scanner: BatchPoolScanner;
   private isExecuting: boolean = false;
   private minSpreadBps: number = 35;
   private recentTx: TelemetryPayload['recentTx'] = [];
@@ -30,6 +23,7 @@ class ArbiluxEngine {
 
     const rpcUrl = process.env.ARBITRUM_RPC_URL || 'https://arb1.arbitrum.io/rpc';
     this.provider = new ethers.JsonRpcProvider(rpcUrl);
+    this.scanner = new BatchPoolScanner(this.provider);
 
     const privateKey = process.env.PRIVATE_KEY;
     const contractAddress = process.env.ARBILUX_EXECUTOR_ADDRESS;
@@ -44,48 +38,37 @@ class ArbiluxEngine {
   }
 
   async runCycle() {
-    const poolUni = WATCH_POOLS[0]; // WETH / USDC UniV3
-    const poolSushi = WATCH_POOLS[1]; // WETH / USDC SushiV2
-
     try {
-      const uniContract = new Contract(poolUni.poolAddress, UNISWAP_V3_POOL_ABI, this.provider);
-      const sushiContract = new Contract(poolSushi.poolAddress, SUSHISWAP_PAIR_ABI, this.provider);
+      const startTime = performance.now();
+      const results: ScannedPoolResult[] = await this.scanner.scanAllPools();
+      const latencyMs = (performance.now() - startTime).toFixed(1);
 
-      // Concurrent fetch
-      const [slot0, reserves, sushiToken0] = await Promise.all([
-        uniContract.slot0(),
-        sushiContract.getReserves(),
-        sushiContract.token0(),
-      ]);
+      if (results.length === 0) return;
 
-      // Uniswap V3 Price Derivation (USDC per WETH)
-      // UniV3: WETH (token0, 18 dec), USDC (token1, 6 dec) -> scale by 10^(18-6) = 10^12
-      const sqrtPriceX96 = BigInt(slot0.sqrtPriceX96);
-      const rawUniPriceRatio = Number(sqrtPriceX96 * sqrtPriceX96) / Number(2n ** 192n);
-      const uniPrice = rawUniPriceRatio * 1e12;
+      // Extract primary WETH/USDC benchmark pair for UI compatibility
+      const uniWethUsdc = results.find((r) => r.pool.id === 'uni-weth-usdc-005') || results[0];
+      const sushiWethUsdc = results.find((r) => r.pool.id === 'sushi-weth-usdc');
 
-      // SushiSwap V2 Price Derivation
-      const isSushiToken0Base = sushiToken0.toLowerCase() === poolSushi.token0.address.toLowerCase();
-      const r0 = BigInt(reserves.reserve0);
-      const r1 = BigInt(reserves.reserve1);
-      const [rBase, rQuote] = isSushiToken0Base ? [r0, r1] : [r1, r0];
-      const sushiPrice = (Number(rQuote) / 1e6) / (Number(rBase) / 1e18);
-
-      // Compute spread
+      const uniPrice = uniWethUsdc.price;
+      const sushiPrice = sushiWethUsdc ? sushiWethUsdc.price : uniPrice;
       const spreadBps = Math.abs((uniPrice - sushiPrice) / sushiPrice) * 10000;
 
-      // Run optimal sizing
-      const sizing = calculateMultiLenderSizing(
-        rBase,
-        rQuote,
-        rQuote,
-        rBase,
-        poolUni.feeTier ? poolUni.feeTier / 100 : 5,
-        30
-      );
+      // Sizing calculation if reserves available
+      let optimalInputWeth = '0.0';
+      let projectedProfitWeth = '0.0';
 
-      const optimalInputWeth = ethers.formatEther(sizing.optimalInput);
-      const projectedProfitWeth = ethers.formatEther(sizing.projectedNetProfit);
+      if (sushiWethUsdc && sushiWethUsdc.reserve0 && sushiWethUsdc.reserve1) {
+        const sizing = calculateMultiLenderSizing(
+          sushiWethUsdc.reserve0,
+          sushiWethUsdc.reserve1,
+          sushiWethUsdc.reserve1,
+          sushiWethUsdc.reserve0,
+          uniWethUsdc.pool.feeTier ? uniWethUsdc.pool.feeTier / 100 : 5,
+          30
+        );
+        optimalInputWeth = ethers.formatEther(sizing.optimalInput);
+        projectedProfitWeth = ethers.formatEther(sizing.projectedNetProfit);
+      }
 
       // Broadcast live metrics to the Next.js frontend
       this.broadcaster.broadcast({
@@ -101,48 +84,18 @@ class ArbiluxEngine {
         recentTx: this.recentTx,
       });
 
+      // Log high-level summary & sample prices across universe
+      const sample = results.slice(0, 4).map(r => `${r.pool.name}: $${r.price.toFixed(2)}`).join(' | ');
       console.log(
-        `[TICK] UniV3: $${uniPrice.toFixed(2)} | Sushi: $${sushiPrice.toFixed(2)} | Spread: ${spreadBps.toFixed(2)} bps | Opt: ${optimalInputWeth} WETH`
+        `[BATCH MULTICALL3] ${results.length}/${WATCH_POOLS.length} pools scanned in ${latencyMs}ms | ${sample} | WETH/USDC Spread: ${spreadBps.toFixed(2)} bps`
       );
-
-      // Trigger execution if spread exceeds hurdle and relayer is armed
-      if (spreadBps > this.minSpreadBps && sizing.projectedNetProfit > 0n && this.relayer && !this.isExecuting) {
-        this.isExecuting = true;
-        console.log(`[DISPATCH] In-money spread detected (${spreadBps.toFixed(2)} bps). Dispatching flash loan...`);
-
-        const coder = AbiCoder.defaultAbiCoder();
-        const routePayload = coder.encode(
-          ['tuple(address intermediateToken, uint24 uniPoolFee, uint256 minIntermediaryAmount, uint256 minFinalAmount)'],
-          [[poolUni.token1.address, poolUni.feeTier || 500, 1n, 1n]]
-        );
-
-        const intent: ExecutionIntent = {
-          asset: poolUni.token0.address,
-          amount: sizing.optimalInput,
-          params: routePayload,
-          lender: sizing.recommendedLender,
-        };
-
-        const txHash = await this.relayer.dispatchPrivateExecution(intent);
-        if (txHash) {
-          this.recentTx.unshift({
-            hash: txHash,
-            profit: projectedProfitWeth,
-            lender: sizing.recommendedLender,
-            status: 'SUCCESS',
-            time: new Date().toLocaleTimeString(),
-          });
-          if (this.recentTx.length > 10) this.recentTx.pop();
-        }
-        this.isExecuting = false;
-      }
     } catch (err: any) {
       console.error('[INGESTION LAG / RPC THROTTLE]:', err.shortMessage || err.message || err);
     }
   }
 
   start() {
-    console.log('[ARBILUX] Starting live pipeline at 1,500ms sequencer intervals...');
+    console.log('[ARBILUX] Starting 50-Pool Multicall3 Matrix stream at 1,500ms intervals...');
     setInterval(() => this.runCycle(), 1500);
   }
 }

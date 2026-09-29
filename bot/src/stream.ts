@@ -35,7 +35,7 @@ export class StateStreamer {
         lastUpdated: Date.now()
       });
 
-      if (pool.dex === 'UniswapV3') {
+      if (pool.venue === 'UniswapV3') {
         const filter = {
           address: pool.poolAddress,
           topics: [UNI_V3_INTERFACE.getEvent('Swap')!.topicHash]
@@ -50,7 +50,7 @@ export class StateStreamer {
             this.stateCache.set(pool.poolAddress.toLowerCase(), current);
           }
         });
-      } else if (pool.dex === 'SushiSwap') {
+      } else if (pool.venue === 'SushiSwap' || pool.venue === 'Camelot') {
         const filter = {
           address: pool.poolAddress,
           topics: [SUSHI_V2_INTERFACE.getEvent('Sync')!.topicHash]
