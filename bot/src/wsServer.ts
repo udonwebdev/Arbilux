@@ -25,6 +25,9 @@ export interface TelemetryPayload {
   type?: string;
   receipt?: any;
   receipts?: any[];
+  auditRecords?: any[];
+  forensicRecord?: any;
+  record?: any;
   executionMode?: 'LIVE_MAINNET' | 'SIMULATION';
   walletBalanceEth?: string;
   signerAddress?: string;

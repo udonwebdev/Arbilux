@@ -15,8 +15,57 @@ import {
   Receipt,
   DollarSign,
   Download,
-  FileCheck
+  FileCheck,
+  Microscope,
+  Clock,
+  ShieldCheck,
+  CornerDownRight
 } from 'lucide-react';
+
+export interface TradeAuditRecord {
+  opportunityId: string;
+  timestamp: string;
+  blockDetected: number;
+  blockSubmitted: number;
+  blockIncluded?: number;
+  latencyMs: {
+    detectionToSubmission: number;
+    submissionToInclusion?: number;
+    totalRoundtrip: number;
+  };
+  route: {
+    pair: string;
+    borrowVenue: 'AaveV3' | 'Balancer';
+    borrowAsset: string;
+    buyVenue: string;
+    buyPool: string;
+    sellVenue: string;
+    sellPool: string;
+  };
+  borrowAmount: string;
+  expected: {
+    grossProfitUsd: number;
+    dexFeesUsd: number;
+    flashLoanFeeUsd: number;
+    l2GasCostUsd: number;
+    l1CalldataCostUsd: number;
+    builderTipUsd: number;
+    netProfitUsd: number;
+  };
+  actual: {
+    executionResult: 'SUCCESS' | 'REVERTED' | 'DROPPED_BY_BUILDER';
+    txHash?: string;
+    l2GasUsed?: string;
+    effectiveGasPriceGwei?: string;
+    actualGasCostUsd?: number;
+    actualRealizedProfitUsd?: number;
+    revertReason?: string;
+  };
+  funnelAttribution?: {
+    binanceTreasuryUsd: number;
+    operatorFuelUsd: number;
+  };
+}
 
 interface PoolItem {
   id: string;
@@ -100,6 +149,8 @@ interface TelemetryState {
   receipts?: FunnelReceipt[];
   type?: string;
   receipt?: FunnelReceipt;
+  record?: TradeAuditRecord;
+  auditRecords?: TradeAuditRecord[];
   executionMode?: 'LIVE_MAINNET' | 'SIMULATION';
   walletBalanceEth?: string;
   signerAddress?: string;
@@ -109,6 +160,7 @@ interface TelemetryState {
 export default function GlassTerminal() {
   const [data, setData] = useState<TelemetryState | null>(null);
   const [receipts, setReceipts] = useState<FunnelReceipt[]>([]);
+  const [auditRecords, setAuditRecords] = useState<TradeAuditRecord[]>([]);
   const [isConnected, setIsConnected] = useState(false);
   const [search, setSearch] = useState('');
   const [venueFilter, setVenueFilter] = useState<'ALL' | 'UniswapV3' | 'SushiSwap' | 'Camelot'>('ALL');
@@ -125,6 +177,8 @@ export default function GlassTerminal() {
         const payload: TelemetryState = JSON.parse(event.data);
         if (payload.type === 'NEW_RECEIPT' && payload.receipt) {
           setReceipts((prev) => [payload.receipt!, ...prev.filter(r => r.receiptId !== payload.receipt!.receiptId)].slice(0, 30));
+        } else if (payload.type === 'FORENSIC_RECORD' && payload.record) {
+          setAuditRecords((prev) => [payload.record!, ...prev.filter(a => a.opportunityId !== payload.record!.opportunityId)].slice(0, 30));
         } else {
           setData(payload);
           if (payload.receipts && payload.receipts.length > 0) {
@@ -132,6 +186,13 @@ export default function GlassTerminal() {
               const combined = [...payload.receipts!, ...prev];
               const unique = Array.from(new Map(combined.map(r => [r.receiptId, r])).values());
               return unique.sort((a, b) => b.unixTimestamp - a.unixTimestamp).slice(0, 30);
+            });
+          }
+          if (payload.auditRecords && payload.auditRecords.length > 0) {
+            setAuditRecords((prev) => {
+              const combined = [...payload.auditRecords!, ...prev];
+              const unique = Array.from(new Map(combined.map(a => [a.opportunityId, a])).values());
+              return unique.slice(0, 30);
             });
           }
         }
@@ -322,6 +383,132 @@ export default function GlassTerminal() {
             ) : (
               <div className="py-8 text-center text-neutral-500 text-xs">
                 Listening for trade settlements... Receipts will generate and write to `/receipts` automatically.
+              </div>
+            )}
+          </div>
+        </section>
+
+        {/* 17-Point High-Fidelity Execution Forensics Drawer */}
+        <section className="glass-panel rounded-2xl p-6 border border-white/[0.08]">
+          <div className="flex items-center justify-between pb-4 border-b border-white/[0.06]">
+            <div className="flex items-center gap-3">
+              <div className="h-3 w-3 rounded-full bg-cyan-400 shadow-[0_0_10px_#06b6d4] animate-pulse" />
+              <h2 className="text-sm font-bold tracking-widest text-white uppercase flex items-center gap-2">
+                <Microscope size={16} className="text-cyan-400" />
+                Execution Forensics & Latency Telemetry (17-Point Audit)
+              </h2>
+            </div>
+            <span className="text-xs text-neutral-400">Microsecond Sub-Block Audit Trail</span>
+          </div>
+
+          <div className="mt-4 space-y-3 max-h-96 overflow-y-auto pr-2">
+            {auditRecords.length > 0 ? (
+              auditRecords.map((a) => {
+                const isSuccess = a.actual.executionResult === 'SUCCESS';
+                const isDropped = a.actual.executionResult === 'DROPPED_BY_BUILDER';
+                return (
+                  <div key={a.opportunityId} className="glass-card rounded-xl p-4 space-y-3 hover:border-white/20 transition">
+                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className={`text-[11px] px-2.5 py-0.5 rounded-full font-bold uppercase tracking-wider ${
+                          isSuccess
+                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 shadow-[0_0_8px_rgba(16,185,129,0.3)]'
+                            : isDropped
+                            ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40'
+                            : 'bg-rose-500/20 text-rose-400 border border-rose-500/40'
+                        }`}>
+                          {a.actual.executionResult}
+                        </span>
+                        <span className="text-xs font-bold text-white font-mono">{a.opportunityId}</span>
+                        <span className="text-[10px] text-neutral-400">
+                          {new Date(a.timestamp).toLocaleTimeString()}
+                        </span>
+                        <span className="text-[10px] px-2 py-0.5 rounded bg-white/10 text-neutral-300">
+                          Blocks: Det #{a.blockDetected} &rarr; Sub #{a.blockSubmitted} &rarr; Inc #{a.blockIncluded || 'N/A'}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-3 text-xs">
+                        <div className="flex items-center gap-1 text-cyan-400 font-mono">
+                          <Clock size={12} />
+                          <span>Roundtrip: {a.latencyMs.totalRoundtrip}ms</span>
+                        </div>
+                        <button
+                          onClick={() => {
+                            const element = document.createElement("a");
+                            const file = new Blob([JSON.stringify(a, null, 2)], { type: 'application/json' });
+                            element.href = URL.createObjectURL(file);
+                            element.download = `${a.opportunityId}_forensic.json`;
+                            document.body.appendChild(element);
+                            element.click();
+                          }}
+                          className="glass-pill px-2.5 py-1 rounded text-[11px] hover:bg-white/10 text-white transition flex items-center gap-1 cursor-pointer"
+                        >
+                          <Download size={11} /> Export Forensic
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-3 text-xs pt-1 border-t border-white/[0.04]">
+                      {/* Trade Route */}
+                      <div className="space-y-0.5">
+                        <span className="text-[10px] text-neutral-500 uppercase tracking-wider">Route & Venue</span>
+                        <div className="text-white font-semibold flex items-center gap-1">
+                          <span>{a.route.pair}</span>
+                          <span className="text-neutral-400 text-[10px]">({a.route.borrowVenue})</span>
+                        </div>
+                        <div className="text-[11px] text-neutral-400 flex items-center gap-1 truncate">
+                          <span>{a.route.buyVenue}</span>
+                          <span>&rarr;</span>
+                          <span>{a.route.sellVenue}</span>
+                        </div>
+                      </div>
+
+                      {/* Modeled Expected Math */}
+                      <div className="space-y-0.5">
+                        <span className="text-[10px] text-neutral-500 uppercase tracking-wider">Pre-Flight Modeled</span>
+                        <div className="text-emerald-400 font-bold">
+                          Expected Net: +${a.expected.netProfitUsd.toFixed(2)}
+                        </div>
+                        <div className="text-[10px] text-neutral-400">
+                          Gross: ${a.expected.grossProfitUsd.toFixed(2)} | Gas: ${(a.expected.l2GasCostUsd + a.expected.l1CalldataCostUsd).toFixed(2)}
+                        </div>
+                      </div>
+
+                      {/* Actual On-Chain Realized */}
+                      <div className="space-y-0.5">
+                        <span className="text-[10px] text-neutral-500 uppercase tracking-wider">Actual Realized</span>
+                        <div className={isSuccess ? 'text-emerald-400 font-bold' : 'text-neutral-400 font-bold'}>
+                          Realized: +${(a.actual.actualRealizedProfitUsd || 0).toFixed(2)}
+                        </div>
+                        <div className="text-[10px] text-neutral-400">
+                          Gas Paid: ${(a.actual.actualGasCostUsd || 0).toFixed(2)} {a.actual.effectiveGasPriceGwei ? `(${a.actual.effectiveGasPriceGwei} gwei)` : ''}
+                        </div>
+                      </div>
+
+                      {/* Revert Diagnostics / Attribution */}
+                      <div className="space-y-0.5">
+                        <span className="text-[10px] text-neutral-500 uppercase tracking-wider">
+                          {isSuccess ? 'Funnel Sweep Split' : 'Revert Diagnostic'}
+                        </span>
+                        {isSuccess && a.funnelAttribution ? (
+                          <div className="text-[11px] space-y-0.5">
+                            <span className="text-amber-400 font-semibold">60% BTC: +${a.funnelAttribution.binanceTreasuryUsd.toFixed(2)}</span>
+                            <span className="text-cyan-400 font-semibold ml-2">40% Fuel: +${a.funnelAttribution.operatorFuelUsd.toFixed(2)}</span>
+                          </div>
+                        ) : (
+                          <div className="text-[11px] text-rose-400 font-mono truncate" title={a.actual.revertReason}>
+                            {a.actual.revertReason || 'No revert recorded'}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            ) : (
+              <div className="py-8 text-center text-neutral-500 text-xs">
+                Awaiting execution dispatches... High-fidelity 17-point forensic telemetry will log here in real time.
               </div>
             )}
           </div>

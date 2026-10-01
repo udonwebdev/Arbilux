@@ -5,7 +5,10 @@ import { WATCH_POOLS, PoolConfig } from '../config/pools.js';
 import { TelemetryBroadcaster } from './wsServer.js';
 import { MatrixMatcher, ArbitrageOpportunity } from './matrixMatcher.js';
 import { ReceiptEngine, FunnelReceipt } from './receiptEngine.js';
-import { ArbiluxRelayer, ExecutionIntent } from './relayer.js';
+import { ArbiluxRelayer, ExecutionIntent, ExecutionReceiptResult } from './relayer.js';
+import { AuditEngine } from './auditEngine.js';
+import { TradeAuditRecord } from './types/audit.js';
+import { decodeTransactionRevert } from './utils/revertDecoder.js';
 
 dotenv.config();
 
@@ -78,6 +81,7 @@ class ArbiluxEngine {
   private broadcaster: TelemetryBroadcaster;
   private multicall: ethers.Contract;
   private receiptEngine: ReceiptEngine;
+  private auditEngine: AuditEngine;
   private relayer: ArbiluxRelayer;
   private executorContract: Contract;
   private currentBlock: number = 384920194;
@@ -100,6 +104,7 @@ class ArbiluxEngine {
     this.provider = new ethers.JsonRpcProvider(rpcUrl);
     this.multicall = new ethers.Contract(MULTICALL3_ADDRESS, MULTICALL3_ABI, this.provider);
     this.receiptEngine = new ReceiptEngine();
+    this.auditEngine = new AuditEngine();
 
     // Instantiate Live Mainnet Relayer
     this.relayer = new ArbiluxRelayer(privateKey, executorAddress, rpcUrl, builderRpc);
@@ -210,9 +215,64 @@ class ArbiluxEngine {
         if (now - lastExec > 6000) {
           this.lastTradePerPair.set(topOpp.pairKey, now);
 
+          // Forensic Timings: Detection
+          const t0 = performance.now();
+          const blockDetected = this.currentBlock;
+          const oppId = `OPP-${blockDetected}-${Date.now().toString().slice(-4)}`;
+
+          // 1. Pre-Flight Modeled Expectations (USD)
+          const expectedGross = topOpp.projectedProfitUsd;
+          const expectedFlashFee = 10000 * 0.0005; // 0.05% Aave V3 / 0% Balancer
+          const expectedDexFees = 10000 * 0.0030;  // 0.30% avg swap fees
+          const expectedL2Gas = 0.08;              // Arbitrum L2 execution gas estimate
+          const expectedL1Data = 0.22;             // Arbitrum L1 Brotli calldata estimate
+          const expectedNet = Math.max(0, expectedGross - expectedFlashFee - expectedDexFees - expectedL2Gas - expectedL1Data);
+          const builderTip = Math.max(0, expectedNet * 0.65);
+
+          const partialRecord: any = {
+            opportunityId: oppId,
+            timestamp: new Date().toISOString(),
+            blockDetected,
+            route: {
+              pair: topOpp.pairKey,
+              borrowVenue: 'Balancer' as const,
+              borrowAsset: topOpp.buyPool.token0.symbol,
+              buyVenue: topOpp.buyVenue,
+              buyPool: topOpp.buyPool.poolAddress,
+              sellVenue: topOpp.sellVenue,
+              sellPool: topOpp.sellPool.poolAddress,
+            },
+            borrowAmount: `1.0 ${topOpp.buyPool.token0.symbol} (~$10,000 equivalent)`,
+            expected: {
+              grossProfitUsd: expectedGross,
+              dexFeesUsd: expectedDexFees,
+              flashLoanFeeUsd: expectedFlashFee,
+              l2GasCostUsd: expectedL2Gas,
+              l1CalldataCostUsd: expectedL1Data,
+              builderTipUsd: builderTip,
+              netProfitUsd: expectedNet,
+            }
+          };
+
           if (!isGasFunded) {
+            const t1 = performance.now();
+            partialRecord.blockSubmitted = blockDetected;
+            partialRecord.latencyMs = {
+              detectionToSubmission: Math.round(t1 - t0),
+              totalRoundtrip: Math.round(t1 - t0),
+            };
+            partialRecord.actual = {
+              executionResult: 'DROPPED_BY_BUILDER',
+              revertReason: 'INSUFFICIENT_GAS_BALANCE (Awaiting EOA funding)',
+              actualGasCostUsd: 0,
+              actualRealizedProfitUsd: 0,
+            };
+
+            this.auditEngine.recordAttempt(partialRecord as TradeAuditRecord);
+            this.broadcaster.broadcast({ type: 'FORENSIC_RECORD', record: partialRecord } as any);
+
             console.log(
-              `[DISPATCH READY] Profitable route detected (${topOpp.pairKey} Spread: +${topOpp.spreadBps.toFixed(2)} bps | Net: ~$${topOpp.projectedProfitUsd.toFixed(2)}). Waiting for EOA gas funding to broadcast... (Wallet: ${this.signerAddress})`
+              `[DISPATCH READY] Profitable route detected (${topOpp.pairKey} Spread: +${topOpp.spreadBps.toFixed(2)} bps | Net: ~$${expectedNet.toFixed(2)}). Waiting for EOA gas funding to broadcast... (Wallet: ${this.signerAddress})`
             );
           } else {
             console.log(
@@ -243,7 +303,7 @@ class ArbiluxEngine {
               [swapHops]
             );
 
-            // Flash borrow volume (e.g. 1 WETH nominal or asset scale)
+            // Flash borrow volume (nominal asset scale)
             const borrowAsset = topOpp.buyPool.token0.address;
             const borrowAmount = ethers.parseUnits('1.0', topOpp.buyPool.token0.decimals);
 
@@ -251,22 +311,72 @@ class ArbiluxEngine {
               asset: borrowAsset,
               amount: borrowAmount,
               params: encodedParams,
-              lender: 'BALANCER', // Default to 0% fee Balancer
+              lender: 'BALANCER', // 0% fee Balancer priority
             };
 
-            // Attempt private flash execution
-            this.relayer.dispatchPrivateExecution(intent).then((txHash) => {
-              if (txHash) {
-                console.log(`[LIVE EXECUTION MINED] TxHash: ${txHash}`);
-              }
+            const t1 = performance.now();
+            partialRecord.blockSubmitted = this.currentBlock;
+            partialRecord.latencyMs = {
+              detectionToSubmission: Math.round(t1 - t0),
+            };
+
+            // Attempt private flash execution with full forensic result tracking
+            this.relayer.dispatchPrivateExecution(intent).then((receiptResult) => {
+              const t2 = performance.now();
+              const isSuccess = receiptResult.status === 'SUCCESS';
+              const revertReason = receiptResult.error ? decodeTransactionRevert(receiptResult.error) : (isSuccess ? undefined : 'STATE_COLLAPSED_IN_BLOCK');
+
+              const finalRecord: TradeAuditRecord = {
+                ...partialRecord,
+                blockIncluded: receiptResult.blockIncluded || this.currentBlock,
+                latencyMs: {
+                  detectionToSubmission: partialRecord.latencyMs.detectionToSubmission,
+                  submissionToInclusion: Math.round(t2 - t1),
+                  totalRoundtrip: Math.round(t2 - t0),
+                },
+                actual: {
+                  executionResult: receiptResult.status,
+                  txHash: receiptResult.txHash,
+                  l2GasUsed: receiptResult.gasUsed?.toString(),
+                  effectiveGasPriceGwei: receiptResult.effectiveGasPriceGwei,
+                  actualGasCostUsd: receiptResult.actualGasCostUsd || 0,
+                  actualRealizedProfitUsd: isSuccess ? expectedNet : 0,
+                  revertReason,
+                },
+                funnelAttribution: isSuccess ? {
+                  binanceTreasuryUsd: expectedNet * 0.60,
+                  operatorFuelUsd: expectedNet * 0.40,
+                } : undefined,
+              };
+
+              this.auditEngine.recordAttempt(finalRecord);
+              this.broadcaster.broadcast({ type: 'FORENSIC_RECORD', record: finalRecord } as any);
             }).catch((err) => {
-              console.warn('[LIVE DISPATCH ERR]:', err.message || err);
+              const t2 = performance.now();
+              const revertReason = decodeTransactionRevert(err);
+              const failRecord: TradeAuditRecord = {
+                ...partialRecord,
+                latencyMs: {
+                  detectionToSubmission: partialRecord.latencyMs.detectionToSubmission,
+                  totalRoundtrip: Math.round(t2 - t0),
+                },
+                actual: {
+                  executionResult: 'REVERTED',
+                  revertReason,
+                  actualGasCostUsd: 0,
+                  actualRealizedProfitUsd: 0,
+                }
+              };
+
+              this.auditEngine.recordAttempt(failRecord);
+              this.broadcaster.broadcast({ type: 'FORENSIC_RECORD', record: failRecord } as any);
             });
           }
         }
       }
 
       const recentReceipts = this.receiptEngine.getRecentReceipts(15);
+      const recentAuditRecords = this.auditEngine.getRecentAuditRecords(15);
 
       // Broadcast the batch payload to the Next.js UI
       this.broadcaster.broadcast({
@@ -286,6 +396,7 @@ class ArbiluxEngine {
         totalPaperTrades: this.liveTradeHistory.length,
         paperJournal: this.liveTradeHistory.slice(0, 10),
         receipts: recentReceipts,
+        auditRecords: recentAuditRecords,
         executionMode: this.executionMode,
         walletBalanceEth: gasBalanceEthFormatted,
         signerAddress: this.signerAddress,

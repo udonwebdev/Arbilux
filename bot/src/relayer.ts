@@ -15,6 +15,16 @@ export interface ExecutionIntent {
   lender: 'BALANCER' | 'AAVE';
 }
 
+export interface ExecutionReceiptResult {
+  txHash?: string;
+  status: 'SUCCESS' | 'REVERTED' | 'DROPPED_BY_BUILDER';
+  blockIncluded?: number;
+  gasUsed?: bigint;
+  effectiveGasPriceGwei?: string;
+  actualGasCostUsd?: number;
+  error?: any;
+}
+
 export class ArbiluxRelayer {
   private wallet: Wallet;
   private provider: ethers.JsonRpcProvider;
@@ -57,15 +67,17 @@ export class ArbiluxRelayer {
     }
   }
 
-  async dispatchPrivateExecution(intent: ExecutionIntent): Promise<string | null> {
+  async dispatchPrivateExecution(intent: ExecutionIntent): Promise<ExecutionReceiptResult> {
     const balance = await this.getWalletBalanceEth();
     if (balance === 0n) {
       console.log(`[DISPATCH READY] Profitable route detected. Waiting for EOA gas funding to broadcast... (Wallet: ${this.wallet.address})`);
-      return null;
+      return { status: 'DROPPED_BY_BUILDER', error: new Error('INSUFFICIENT_GAS_BALANCE') };
     }
 
     const isProfitable = await this.simulateLocally(intent);
-    if (!isProfitable) return null;
+    if (!isProfitable) {
+      return { status: 'REVERTED', error: new Error('SIMULATION_REVERT_NEGATIVE_PNL') };
+    }
 
     try {
       const targetMethod = intent.lender === 'BALANCER' ? 'requestBalancerFlashLoan' : 'requestFlashLoan';
@@ -79,7 +91,7 @@ export class ArbiluxRelayer {
       const requiredGasCost = estimatedGas * (feeData.maxFeePerGas || feeData.gasPrice || 100000000n);
       if (balance < requiredGasCost) {
         console.warn(`[INSUFFICIENT GAS] Required: ${ethers.formatEther(requiredGasCost)} ETH | Available: ${ethers.formatEther(balance)} ETH`);
-        return null;
+        return { status: 'DROPPED_BY_BUILDER', error: new Error('INSUFFICIENT_GAS_BALANCE') };
       }
 
       const tx = await this.executorContract[targetMethod].populateTransaction(
@@ -102,10 +114,25 @@ export class ArbiluxRelayer {
       const receipt = await txResponse.wait(1);
       console.log(`[MINED] Block: ${receipt?.blockNumber} | Status: ${receipt?.status === 1 ? 'SUCCESS' : 'REVERTED'}`);
 
-      return txResponse.hash;
+      const gasUsed = receipt?.gasUsed || 0n;
+      const effectiveGasPrice = receipt?.gasPrice ? Number(ethers.formatUnits(receipt.gasPrice, 'gwei')) : 0.1;
+      const actualGasCostEth = (Number(gasUsed) * effectiveGasPrice) / 1e9;
+      const actualGasCostUsd = actualGasCostEth * 2680;
+
+      return {
+        txHash: txResponse.hash,
+        status: receipt?.status === 1 ? 'SUCCESS' : 'REVERTED',
+        blockIncluded: receipt?.blockNumber,
+        gasUsed,
+        effectiveGasPriceGwei: effectiveGasPrice.toFixed(4),
+        actualGasCostUsd,
+      };
     } catch (error: any) {
       console.error('[RELAY ERROR] Dispatch failed:', error.message);
-      return null;
+      return {
+        status: 'REVERTED',
+        error,
+      };
     }
   }
 }
