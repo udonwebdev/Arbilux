@@ -1,4 +1,5 @@
 import { ethers, Interface, Contract } from 'ethers';
+import WebSocket from 'ws';
 import dotenv from 'dotenv';
 import { WATCH_POOLS, PoolConfig } from '../config/pools.js';
 import { TelemetryBroadcaster } from './wsServer.js';
@@ -31,6 +32,17 @@ const EXECUTOR_EVENT_ABI = [
   'event ArbitrageExecuted(address indexed asset, uint256 borrowed, uint256 profit, string lender)'
 ];
 
+// Pre-encoded static calldata selectors for zero-overhead multicall dispatch
+const SELECTOR_SLOT0 = '0x3850c7bd';        // slot0()
+const SELECTOR_RESERVES = '0x0902f1ac';     // getReserves()
+
+// Static pre-assembled Multicall3 calls array (allocated once in memory)
+const STATIC_CALLS = WATCH_POOLS.map((p) => ({
+  target: ethers.getAddress(p.poolAddress.toLowerCase()),
+  allowFailure: true,
+  callData: p.venue === 'UniswapV3' ? SELECTOR_SLOT0 : SELECTOR_RESERVES,
+}));
+
 export interface PoolTelemetryItem {
   id: string;
   name: string;
@@ -62,11 +74,9 @@ export interface LiveSettledTrade {
 
 class ArbiluxEngine {
   private provider: ethers.JsonRpcProvider;
+  private wsProvider: ethers.WebSocketProvider | null = null;
   private broadcaster: TelemetryBroadcaster;
   private multicall: ethers.Contract;
-  private uniInterface: Interface;
-  private v2Interface: Interface;
-  private camelotInterface: Interface;
   private receiptEngine: ReceiptEngine;
   private relayer: ArbiluxRelayer;
   private executorContract: Contract;
@@ -78,6 +88,7 @@ class ArbiluxEngine {
   private lastTradePerPair: Map<string, number> = new Map();
   private hurdleBps: number = 35; // Breakeven hurdle > 35 bps
   private signerAddress: string;
+  private isProcessing: boolean = false;
 
   constructor() {
     this.broadcaster = new TelemetryBroadcaster(8545);
@@ -88,9 +99,6 @@ class ArbiluxEngine {
 
     this.provider = new ethers.JsonRpcProvider(rpcUrl);
     this.multicall = new ethers.Contract(MULTICALL3_ADDRESS, MULTICALL3_ABI, this.provider);
-    this.uniInterface = new Interface(UNISWAP_V3_ABI);
-    this.v2Interface = new Interface(V2_PAIR_ABI);
-    this.camelotInterface = new Interface(CAMELOT_PAIR_ABI);
     this.receiptEngine = new ReceiptEngine();
 
     // Instantiate Live Mainnet Relayer
@@ -105,23 +113,18 @@ class ArbiluxEngine {
     this.provider.getBlockNumber().then(b => { this.currentBlock = b; }).catch(() => {});
   }
 
-  async runBatchCycle() {
+  async runBatchCycle(triggeredBlock?: number) {
+    if (this.isProcessing) return;
+    this.isProcessing = true;
+    const cycleStart = performance.now();
+
     try {
-      const calls = WATCH_POOLS.map((p) => {
-        const isUni = p.venue === 'UniswapV3';
-        const callData = isUni
-          ? this.uniInterface.encodeFunctionData('slot0')
-          : this.v2Interface.encodeFunctionData('getReserves');
+      if (triggeredBlock) {
+        this.currentBlock = triggeredBlock;
+      }
 
-        return {
-          target: ethers.getAddress(p.poolAddress.toLowerCase()),
-          allowFailure: true,
-          callData,
-        };
-      });
-
-      // 1 single roundtrip query for 50 pools
-      const results = await this.multicall.aggregate3.staticCall(calls);
+      // Fast single roundtrip static query for all 50 pools using pre-encoded static calls
+      const results = await this.multicall.aggregate3.staticCall(STATIC_CALLS);
 
       const poolData: PoolTelemetryItem[] = [];
 
@@ -129,7 +132,7 @@ class ArbiluxEngine {
         const { success, returnData } = results[i];
         const p = WATCH_POOLS[i];
 
-        if (!success || returnData === '0x' || !returnData) {
+        if (!success || returnData === '0x' || !returnData || returnData.length < 66) {
           poolData.push({
             id: p.id,
             name: p.name,
@@ -145,28 +148,20 @@ class ArbiluxEngine {
           let price = 0;
 
           if (p.venue === 'UniswapV3') {
-            const [sqrtPriceX96] = this.uniInterface.decodeFunctionResult('slot0', returnData);
-            const rawRatio = Number(BigInt(sqrtPriceX96) * BigInt(sqrtPriceX96)) / Number(2n ** 192n);
-            const decimalShift = 10 ** (p.token0.decimals - p.token1.decimals);
-            price = rawRatio * decimalShift;
-          } else if (p.venue === 'Camelot') {
-            // Try Camelot 4-parameter decode first, fallback to V2
-            try {
-              const [reserve0, reserve1] = this.camelotInterface.decodeFunctionResult('getReserves', returnData);
-              const r0 = Number(reserve0) / 10 ** p.token0.decimals;
-              const r1 = Number(reserve1) / 10 ** p.token1.decimals;
-              price = r0 > 0 ? r1 / r0 : 0;
-            } catch {
-              const [reserve0, reserve1] = this.v2Interface.decodeFunctionResult('getReserves', returnData);
-              const r0 = Number(reserve0) / 10 ** p.token0.decimals;
-              const r1 = Number(reserve1) / 10 ** p.token1.decimals;
-              price = r0 > 0 ? r1 / r0 : 0;
+            // Direct zero-copy slice: sqrtPriceX96 is the first 32-byte EVM word
+            const rawWord = '0x' + returnData.slice(2, 66);
+            const sqrtPriceX96 = BigInt(rawWord);
+            if (sqrtPriceX96 > 0n) {
+              const rawRatio = Number(sqrtPriceX96 * sqrtPriceX96) / Number(2n ** 192n);
+              const decimalShift = 10 ** (p.token0.decimals - p.token1.decimals);
+              price = rawRatio * decimalShift;
             }
           } else {
-            // SushiSwap / Standard V2
-            const [reserve0, reserve1] = this.v2Interface.decodeFunctionResult('getReserves', returnData);
-            const r0 = Number(reserve0) / 10 ** p.token0.decimals;
-            const r1 = Number(reserve1) / 10 ** p.token1.decimals;
+            // SushiSwap & Camelot V2: reserve0 is Word 1 (chars 2..66), reserve1 is Word 2 (chars 66..130)
+            const r0Big = BigInt('0x' + returnData.slice(2, 66));
+            const r1Big = BigInt('0x' + returnData.slice(66, 130));
+            const r0 = Number(r0Big) / 10 ** p.token0.decimals;
+            const r1 = Number(r1Big) / 10 ** p.token1.decimals;
             price = r0 > 0 ? r1 / r0 : 0;
           }
 
@@ -182,7 +177,7 @@ class ArbiluxEngine {
           } else {
             throw new Error('Zero price derived');
           }
-        } catch (err) {
+        } catch {
           poolData.push({
             id: p.id,
             name: p.name,
@@ -298,11 +293,14 @@ class ArbiluxEngine {
       } as any);
 
       const onlineCount = poolData.filter((x) => x.status === 'ONLINE').length;
+      const cycleDurationMs = (performance.now() - cycleStart).toFixed(1);
       console.log(
-        `[MULTICALL3] Synced ${onlineCount}/${WATCH_POOLS.length} Pools Online | WETH: $${uniWeth.toFixed(2)} | Opps: ${opportunities.length} | Gas: ${gasBalanceEthFormatted} ETH | Status: ${isGasFunded ? 'ARMED & FUNDED' : 'ARMED (Awaiting Gas)'}`
+        `[PUSH INGESTION] Block #${this.currentBlock} | ${cycleDurationMs}ms | ${onlineCount}/${WATCH_POOLS.length} Online | WETH: $${uniWeth.toFixed(2)} | Opps: ${opportunities.length} | Gas: ${gasBalanceEthFormatted} ETH`
       );
     } catch (err: any) {
       console.error('[BATCH SCAN ERROR]:', err.message || err);
+    } finally {
+      this.isProcessing = false;
     }
   }
 
@@ -392,11 +390,63 @@ class ArbiluxEngine {
     }
   }
 
-  start() {
+  async start() {
     console.log('[MODE] LIVE MAINNET ARMED (Paper trading disabled)');
     console.log(`[WALLET] Signer Address: ${this.signerAddress}`);
-    console.log('[ARBILUX] Launching 50-pool Multicall3 pipeline (1,500ms heartbeat)...');
-    setInterval(() => this.runBatchCycle(), 1500);
+
+    // Initial warm-up query
+    await this.runBatchCycle();
+
+    // 1. Primary Ingestion: WebSocket Block Head Subscription (0 ms idle latency)
+    const wsUrl = process.env.ARBITRUM_WS_URL || 'wss://arb-mainnet.g.alchemy.com/v2/alch_9xPmo53icKcojfg6xFLSA';
+    try {
+      this.wsProvider = new ethers.WebSocketProvider(wsUrl);
+      console.log(`[WEBSOCKET STREAM] Connected to Arbitrum L2 WebSocket (${wsUrl.split('/')[2]})`);
+
+      this.wsProvider.on('block', async (blockNumber: number) => {
+        await this.runBatchCycle(blockNumber);
+      });
+
+      this.wsProvider.on('error', (err: any) => {
+        console.warn('[WS STREAM RECONNECTING]:', err.message || err);
+      });
+    } catch (e: any) {
+      console.warn('[WS INIT FALLBACK]:', e.message || e);
+    }
+
+    // 2. Direct Arbitrum Nitro Sequencer Feed Ingestion (200-400ms head start)
+    const sequencerFeedUrl = process.env.ARBITRUM_SEQUENCER_FEED_URL || 'wss://arb1-sequencer.arbitrum.io/feed';
+    try {
+      const sequencerWs = new WebSocket(sequencerFeedUrl);
+
+      sequencerWs.on('open', () => {
+        console.log(`[SEQUENCER FEED] Connected directly to Arbitrum Nitro Sequencer Feed: ${sequencerFeedUrl}`);
+      });
+
+      sequencerWs.on('message', async () => {
+        // High-frequency sequencer state update: trigger immediate batch evaluation
+        if (!this.isProcessing) {
+          await this.runBatchCycle();
+        }
+      });
+
+      sequencerWs.on('error', (err: any) => {
+        console.warn('[SEQUENCER FEED NOTICE]:', err.message || 'Connecting to public sequencer fallback...');
+      });
+
+      sequencerWs.on('close', () => {
+        console.log('[SEQUENCER FEED] Stream closed. WebSocket block header push remains active.');
+      });
+    } catch (e: any) {
+      console.warn('[SEQUENCER FEED INIT]:', e.message || e);
+    }
+
+    // 3. Fallback Liveness Heartbeat (2,000ms safety net if network drops packets)
+    setInterval(() => {
+      if (!this.isProcessing) {
+        this.runBatchCycle();
+      }
+    }, 2000);
   }
 }
 
