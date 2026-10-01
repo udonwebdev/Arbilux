@@ -1,0 +1,149 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Arbilux Ultra-Low Latency Colocation Stack - AWS us-east-1 (N. Virginia)'
+
+Parameters:
+  InstanceType:
+    Type: String
+    Default: c6in.xlarge
+    Description: Compute-optimized instance with 12.5 Gbps enhanced networking
+  KeyPairName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: EC2 Key Pair for SSH access
+    Default: arbilux-key
+
+Resources:
+  ArbiluxVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: Arbilux-Colocation-VPC
+
+  ArbiluxSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref ArbiluxVPC
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: us-east-1a
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: Arbilux-Colocation-Subnet-1a
+
+  ArbiluxInternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: Arbilux-IGW
+
+  ArbiluxVPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref ArbiluxVPC
+      InternetGatewayId: !Ref ArbiluxInternetGateway
+
+  ArbiluxRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref ArbiluxVPC
+      Tags:
+        - Key: Name
+          Value: Arbilux-Public-Routes
+
+  ArbiluxDefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: ArbiluxVPCGatewayAttachment
+    Properties:
+      RouteTableId: !Ref ArbiluxRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref ArbiluxInternetGateway
+
+  ArbiluxSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref ArbiluxSubnet
+      RouteTableId: !Ref ArbiluxRouteTable
+
+  # Enhanced Placement Group for lowest possible intra-rack packet serialization
+  ArbiluxPlacementGroup:
+    Type: AWS::EC2::PlacementGroup
+    Properties:
+      Strategy: cluster
+
+  ArbiluxSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable SSH, Telemetry WS and Outbound Builder Feeds
+      VpcId: !Ref ArbiluxVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 8545
+          ToPort: 8545
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 3000
+          ToPort: 3000
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+
+  ArbiluxNodeInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      KeyName: !Ref KeyPairName
+      PlacementGroupName: !Ref ArbiluxPlacementGroup
+      SubnetId: !Ref ArbiluxSubnet
+      SecurityGroupIds:
+        - !Ref ArbiluxSecurityGroup
+      # Ubuntu 22.04 LTS (us-east-1)
+      ImageId: ami-0c7217cdde317cfec
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs:
+            VolumeSize: 50
+            VolumeType: gp3
+            Iops: 3000
+            Throughput: 125
+            DeleteOnTermination: true
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -e
+          apt-get update -y
+          apt-get install -y git curl wget build-essential ca-certificates jq
+          
+          # Kernel Network Tuning for Sub-millisecond Sockets
+          sysctl -w net.core.rmem_max=16777216
+          sysctl -w net.core.wmem_max=16777216
+          sysctl -w net.ipv4.tcp_rmem="4096 87380 16777216"
+          sysctl -w net.ipv4.tcp_wmem="4096 65536 16777216"
+          sysctl -w net.ipv4.tcp_fastopen=3
+          sysctl -w net.ipv4.tcp_low_latency=1
+          
+          # Install Node.js 20 & PM2
+          curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+          apt-get install -y nodejs
+          npm install -g pm2 tsx typescript
+
+          echo "Arbilux Colocation Node Ready in us-east-1" > /var/log/arbilux-init.log
+      Tags:
+        - Key: Name
+          Value: Arbilux-Colocation-Engine-us-east-1
+
+Outputs:
+  PublicIp:
+    Description: Public IP of Arbilux Colocation Node
+    Value: !GetAtt ArbiluxNodeInstance.PublicIp
+  PublicDnsName:
+    Description: Public DNS of Arbilux Colocation Node
+    Value: !GetAtt ArbiluxNodeInstance.PublicDnsName

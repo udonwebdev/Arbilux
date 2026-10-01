@@ -6,6 +6,7 @@
   "scripts": {
     "build": "tsc",
     "start": "tsx src/index.ts",
+    "benchmark": "tsx src/benchmarkLatency.ts",
     "scan": "tsx src/scanner.ts",
     "backtest": "tsx src/backtester.ts",
     "dashboard": "tsx src/dashboard.ts"

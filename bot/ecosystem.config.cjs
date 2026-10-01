@@ -3,7 +3,7 @@ module.exports = {
     {
       name: 'arbilux-core',
       script: 'node_modules/tsx/dist/cli.mjs',
-      args: 'src/scanner.ts',
+      args: 'src/index.ts',
       cwd: './bot',
       autorestart: true,
       watch: false,
