@@ -18,7 +18,7 @@ contract ArbiluxForkTest is Test {
 
     function setUp() public {
         owner = address(this);
-        executor = new ArbiluxExecutor(AAVE_PROVIDER);
+        executor = new ArbiluxExecutor(AAVE_PROVIDER, payable(owner), payable(address(0xbeef)));
     }
 
     function test_AaveFlashLoanBorrowAndRepay() public {
@@ -28,17 +28,17 @@ contract ArbiluxForkTest is Test {
         // Pre-fund contract with debt premium + nominal profit buffer
         deal(WETH, address(executor), premium + 0.05 ether);
 
-        uint256 balanceBefore = IERC20(WETH).balanceOf(owner);
+        uint256 balanceBefore = owner.balance;
 
         // Execute flash loan
         executor.requestFlashLoan(WETH, borrowAmount, "");
 
-        uint256 balanceAfter = IERC20(WETH).balanceOf(owner);
+        uint256 balanceAfter = owner.balance;
 
-        // Assert net profit swept to owner
+        // Assert net profit swept to owner (60% vault destination)
         assertGe(balanceAfter, balanceBefore, "Profit sweep assertion failed");
         console2.log("Fork execution verified on Arbitrum live state.");
-        console2.log("Net profit swept:", balanceAfter - balanceBefore);
+        console2.log("Net profit swept in ETH:", balanceAfter - balanceBefore);
     }
 
     function test_RevertOnNegativePnL() public {
@@ -48,4 +48,6 @@ contract ArbiluxForkTest is Test {
         vm.expectRevert();
         executor.requestFlashLoan(WETH, borrowAmount, "");
     }
+
+    receive() external payable {}
 }

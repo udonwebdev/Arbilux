@@ -13,7 +13,7 @@ contract ArbiluxTriangularForkTest is Test {
     address constant ARB  = 0x912CE59144191C1204E64559FE8253a0e49E6548;
 
     function setUp() public {
-        executor = new ArbiluxExecutor(AAVE_PROVIDER);
+        executor = new ArbiluxExecutor(AAVE_PROVIDER, payable(address(this)), payable(address(0xbeef)));
     }
 
     function test_TriangularRoutingRevertUnderEquilibrium() public {

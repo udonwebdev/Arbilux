@@ -1,99 +1,170 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { 
   Activity, 
   ShieldAlert, 
-  Zap, 
-  TrendingUp, 
-  RefreshCw, 
-  Terminal, 
+  Layers, 
+  Search,
   ExternalLink,
-  Layers,
-  ArrowUpRight,
-  ArrowDownRight
+  CheckCircle2,
+  AlertCircle,
+  Zap,
+  TrendingUp,
+  ArrowRight,
+  Receipt,
+  DollarSign,
+  Download,
+  FileCheck
 } from 'lucide-react';
-import { 
-  ResponsiveContainer, 
-  AreaChart, 
-  Area, 
-  XAxis, 
-  YAxis, 
-  Tooltip, 
-  CartesianGrid 
-} from 'recharts';
+
+interface PoolItem {
+  id: string;
+  name: string;
+  venue: string;
+  price: number;
+  formattedPrice: string;
+  status: 'ONLINE' | 'THROTTLED';
+}
+
+interface ArbitrageOpportunity {
+  id: string;
+  pairKey: string;
+  buyVenue: string;
+  sellVenue: string;
+  buyPrice: number;
+  sellPrice: number;
+  spreadBps: number;
+  projectedProfitUsd: number;
+  timestamp: number;
+}
+
+interface PaperTrade {
+  id: string;
+  txHash: string;
+  timestamp: number;
+  timeFormatted: string;
+  pairKey: string;
+  buyVenue: string;
+  sellVenue: string;
+  buyPrice: number;
+  sellPrice: number;
+  spreadBps: number;
+  borrowVolumeUsd: number;
+  grossProfitUsd: number;
+  flashLoanFeeUsd: number;
+  dexSwapFeesUsd: number;
+  estimatedGasUsd: number;
+  netProfitUsd: number;
+  status: 'SETTLED' | 'REVERTED_SIM';
+}
+
+export interface FunnelReceipt {
+  receiptId: string;
+  txHash: string;
+  blockNumber: number;
+  timestamp: string;
+  unixTimestamp: number;
+  asset: string;
+  grossCaptured: string;
+  allocations: {
+    btcTarget: {
+      percentage: '60%';
+      amount: string;
+      destinationAddress: string;
+      channel: 'Binance Arbitrum Deposit / BTC Vault';
+    };
+    fuelTarget: {
+      percentage: '40%';
+      amount: string;
+      destinationAddress: string;
+      channel: 'Bot Relayer Gas Reserve';
+    };
+  };
+  metrics: {
+    lenderFeeDeducted: string;
+    builderBribePaid: string;
+    netMarginRetained: string;
+  };
+}
 
 interface TelemetryState {
-  pair: string;
+  spreadBps: number;
   uniPrice: number;
   sushiPrice: number;
-  spreadBps: number;
-  optimalInputWeth: string;
-  projectedProfitWeth: string;
-  isExecuting: boolean;
-  circuitBreakerTripped: boolean;
-  recentTx: {
-    hash: string;
-    profit: string;
-    lender: string;
-    status: string;
-    time: string;
-  }[];
+  pools?: PoolItem[];
+  opportunities?: ArbitrageOpportunity[];
+  cumulativePaperPnlUsd?: number;
+  totalPaperTrades?: number;
+  paperJournal?: PaperTrade[];
+  receipts?: FunnelReceipt[];
+  type?: string;
+  receipt?: FunnelReceipt;
+  executionMode?: 'LIVE_MAINNET' | 'SIMULATION';
+  walletBalanceEth?: string;
+  signerAddress?: string;
+  waitingForGasFunding?: boolean;
 }
 
 export default function GlassTerminal() {
   const [data, setData] = useState<TelemetryState | null>(null);
-  const [history, setHistory] = useState<{ time: string; spread: number; priceUni: number; priceSushi: number }[]>([]);
+  const [receipts, setReceipts] = useState<FunnelReceipt[]>([]);
   const [isConnected, setIsConnected] = useState(false);
+  const [search, setSearch] = useState('');
+  const [venueFilter, setVenueFilter] = useState<'ALL' | 'UniswapV3' | 'SushiSwap' | 'Camelot'>('ALL');
 
   useEffect(() => {
-    let ws: WebSocket;
-    try {
-      ws = new WebSocket('ws://localhost:8545');
+    const ws = new WebSocket('ws://localhost:8545');
 
-      ws.onopen = () => setIsConnected(true);
-      ws.onclose = () => setIsConnected(false);
-      ws.onerror = () => setIsConnected(false);
+    ws.onopen = () => setIsConnected(true);
+    ws.onclose = () => setIsConnected(false);
+    ws.onerror = () => setIsConnected(false);
 
-      ws.onmessage = (event) => {
-        try {
-          const payload: TelemetryState = JSON.parse(event.data);
+    ws.onmessage = (event) => {
+      try {
+        const payload: TelemetryState = JSON.parse(event.data);
+        if (payload.type === 'NEW_RECEIPT' && payload.receipt) {
+          setReceipts((prev) => [payload.receipt!, ...prev.filter(r => r.receiptId !== payload.receipt!.receiptId)].slice(0, 30));
+        } else {
           setData(payload);
-
-          setHistory((prev) => [
-            ...prev.slice(-30),
-            {
-              time: new Date().toLocaleTimeString().slice(3, 8),
-              spread: Number(payload.spreadBps.toFixed(2)),
-              priceUni: Number(payload.uniPrice.toFixed(2)),
-              priceSushi: Number(payload.sushiPrice.toFixed(2)),
-            },
-          ]);
-        } catch (e) {
-          console.error('Failed to parse telemetry', e);
+          if (payload.receipts && payload.receipts.length > 0) {
+            setReceipts((prev) => {
+              const combined = [...payload.receipts!, ...prev];
+              const unique = Array.from(new Map(combined.map(r => [r.receiptId, r])).values());
+              return unique.sort((a, b) => b.unixTimestamp - a.unixTimestamp).slice(0, 30);
+            });
+          }
         }
-      };
-    } catch (err) {
-      console.warn('WebSocket connection attempt failed:', err);
-    }
-
-    return () => {
-      if (ws) ws.close();
+      } catch (e) {
+        console.error('Failed to parse telemetry', e);
+      }
     };
+
+    return () => ws.close();
   }, []);
 
-  const spread = data?.spreadBps ?? 0;
-  const isProfitableSpread = spread >= 35; // Breakeven hurdle (Uni + Sushi + Flash fee)
+  const filteredPools = useMemo(() => {
+    if (!data?.pools) return [];
+    return data.pools.filter((p) => {
+      const matchesSearch = p.name.toLowerCase().includes(search.toLowerCase());
+      const matchesVenue = venueFilter === 'ALL' || p.venue === venueFilter;
+      return matchesSearch && matchesVenue;
+    });
+  }, [data?.pools, search, venueFilter]);
+
+  const topOpportunities = data?.opportunities || [];
+  const paperJournal = data?.paperJournal || [];
+  const cumulativePnl = data?.cumulativePaperPnlUsd || 0;
+  const totalTrades = data?.totalPaperTrades || 0;
 
   return (
-    <div className="relative min-h-screen bg-[#0b0d0e] text-white p-6 md:p-10 font-mono selection:bg-white/20 overflow-hidden">
-      {/* Dynamic Ambient Glass Glow Orbs */}
-      <div className="pointer-events-none absolute -top-40 -left-40 w-96 h-96 bg-emerald-500/10 rounded-full blur-[128px]" />
-      <div className="pointer-events-none absolute top-1/3 -right-40 w-[30rem] h-[30rem] bg-rose-500/10 rounded-full blur-[140px]" />
-      <div className="pointer-events-none absolute -bottom-40 left-1/3 w-[35rem] h-[35rem] bg-white/[0.03] rounded-full blur-[160px]" />
+    <div className="relative min-h-screen bg-[#0b0d0e] text-white p-6 md:p-10 font-mono selection:bg-white/20">
+      {/* Dynamic Ambient Background Glows */}
+      <div className="pointer-events-none fixed -top-40 -left-40 w-96 h-96 bg-emerald-500/10 rounded-full blur-[128px]" />
+      <div className="pointer-events-none fixed top-1/3 -right-40 w-[30rem] h-[30rem] bg-rose-500/10 rounded-full blur-[140px]" />
 
       <div className="relative max-w-7xl mx-auto space-y-6">
-        {/* Glass Navigation Header */}
+        {/* Navigation & Status Header */}
         <header className="glass-panel rounded-2xl p-5 flex flex-col md:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-4">
             <div className="relative flex items-center justify-center h-10 w-10 rounded-xl glass-pill">
@@ -102,184 +173,245 @@ export default function GlassTerminal() {
             </div>
             <div>
               <h1 className="text-lg font-bold tracking-widest text-white flex items-center gap-2">
-                ARBILUX <span className="text-xs px-2 py-0.5 rounded-full bg-white/10 text-neutral-300 font-normal">v2.0 GLASS</span>
+                ARBILUX <span className="text-xs px-2 py-0.5 rounded-full bg-white/10 text-neutral-300 font-normal">50-POOL MATRIX</span>
               </h1>
-              <p className="text-xs text-neutral-400">Arbitrum One // Concentrated Liquidity Dynamic Engine</p>
+              <p className="text-xs text-neutral-400">Arbitrum One // Batch Multicall3 Engine (0xcA11...CA11)</p>
             </div>
           </div>
 
           <div className="flex items-center gap-3">
+            <div className="glass-pill px-4 py-2 rounded-xl text-xs flex items-center gap-2">
+              <div className="h-2.5 w-2.5 rounded-full bg-emerald-400 shadow-[0_0_10px_#10b981] animate-pulse" />
+              <span className="text-neutral-400">STATUS:</span>
+              <span className="text-emerald-400 font-extrabold tracking-wider">
+                {data?.executionMode === 'LIVE_MAINNET' ? 'ARMED (MAINNET)' : 'SIMULATION'}
+              </span>
+            </div>
+
+            <div className="glass-pill px-4 py-2 rounded-xl text-xs flex items-center gap-2">
+              <Zap size={14} className={data?.waitingForGasFunding ? 'text-amber-400 animate-bounce' : 'text-emerald-400'} />
+              <span className="text-neutral-400">GAS:</span>
+              <span className={data?.waitingForGasFunding ? 'text-amber-400 font-bold' : 'text-emerald-400 font-bold'}>
+                {data?.walletBalanceEth !== undefined ? `${parseFloat(data.walletBalanceEth).toFixed(4)} ETH` : '0.0000 ETH'}
+              </span>
+            </div>
+
             <div className="glass-pill px-4 py-2 rounded-xl text-xs flex items-center gap-3">
               <span className="text-neutral-400">Socket:</span>
               <span className={isConnected ? 'text-emerald-400 font-bold' : 'text-rose-500 font-bold'}>
-                {isConnected ? 'STREAMING' : 'DISCONNECTED'}
+                {isConnected ? 'STREAMING 50/50' : 'DISCONNECTED'}
               </span>
             </div>
 
             <button
-              onClick={() => fetch('http://localhost:8080/emergency-halt', { method: 'POST' }).catch(() => {})}
-              className="group glass-pill hover:bg-rose-500/20 hover:border-rose-500/40 text-neutral-200 hover:text-white px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition duration-200 cursor-pointer"
+              onClick={() => fetch('http://localhost:8080/emergency-halt', { method: 'POST' })}
+              className="glass-pill hover:bg-rose-500/20 text-neutral-200 hover:text-white px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition"
             >
-              <ShieldAlert size={14} className="text-rose-500 group-hover:scale-110 transition" />
-              HALT ENGINE
+              <ShieldAlert size={14} className="text-rose-500" /> HALT
             </button>
           </div>
         </header>
 
-        {/* Live Pair Price Simulators (Red vs Green Divergence) */}
-        <section className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* Venue 1: Uniswap V3 */}
-          <div className="glass-card rounded-2xl p-6 border-l-4 border-l-emerald-500">
-            <div className="flex justify-between items-start">
-              <div>
-                <span className="text-xs text-neutral-400 tracking-wider">PRIMARY LEG (UNISWAP V3)</span>
-                <h3 className="text-white text-xl font-bold mt-1">WETH / USDC</h3>
-              </div>
-              <div className="flex items-center gap-1 text-emerald-400 text-xs glass-pill px-2.5 py-1 rounded-lg">
-                <ArrowUpRight size={14} /> BUY VENUE
-              </div>
+        {/* Paper / Live Execution & PnL Performance Ribbon */}
+        <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="glass-card rounded-2xl p-5 border-l-4 border-l-emerald-500">
+            <div className="flex justify-between items-center text-xs text-neutral-400">
+              <span>{data?.executionMode === 'LIVE_MAINNET' ? 'REALIZED AUDITED PNL' : 'SIMULATED CUMULATIVE PNL'}</span>
+              <DollarSign size={16} className="text-emerald-400" />
             </div>
-            <div className="mt-4 flex items-baseline gap-3">
-              <span className="text-3xl font-extrabold text-white tracking-tight">
-                ${data ? data.uniPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00'}
-              </span>
-              <span className="text-xs text-emerald-400 font-medium">Slot0 Tick Sync</span>
+            <div className="text-2xl font-extrabold mt-2 text-emerald-400 tracking-tight">
+              +${cumulativePnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+            </div>
+            <div className="text-[11px] text-neutral-500 mt-1">
+              {data?.executionMode === 'LIVE_MAINNET' ? 'Real on-chain verified net yields' : 'Net of Flash Loan (0.05%), DEX fees & Gas ($0.35)'}
             </div>
           </div>
 
-          {/* Venue 2: SushiSwap V2 */}
-          <div className="glass-card rounded-2xl p-6 border-l-4 border-l-rose-500">
-            <div className="flex justify-between items-start">
-              <div>
-                <span className="text-xs text-neutral-400 tracking-wider">COUNTER LEG (SUSHISWAP V2)</span>
-                <h3 className="text-white text-xl font-bold mt-1">WETH / USDC</h3>
-              </div>
-              <div className="flex items-center gap-1 text-rose-500 text-xs glass-pill px-2.5 py-1 rounded-lg">
-                <ArrowDownRight size={14} /> SELL VENUE
-              </div>
+          <div className="glass-card rounded-2xl p-5 border-l-4 border-l-cyan-500">
+            <div className="flex justify-between items-center text-xs text-neutral-400">
+              <span>{data?.executionMode === 'LIVE_MAINNET' ? 'EXECUTED ON-CHAIN TRADES' : 'SETTLED PAPER TRADES'}</span>
+              <Receipt size={16} className="text-cyan-400" />
             </div>
-            <div className="mt-4 flex items-baseline gap-3">
-              <span className="text-3xl font-extrabold text-white tracking-tight">
-                ${data ? data.sushiPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00'}
-              </span>
-              <span className="text-xs text-rose-500 font-medium">Reserves CPMM</span>
+            <div className="text-2xl font-extrabold mt-2 text-white tracking-tight">
+              {totalTrades} Executions
             </div>
+            <div className="text-[11px] text-neutral-500 mt-1">Hurdle rate &gt; 35.00 bps enforced</div>
+          </div>
+
+          <div className="glass-card rounded-2xl p-5 border-l-4 border-l-amber-500">
+            <div className="flex justify-between items-center text-xs text-neutral-400">
+              <span>60/40 FUNNEL SIZING</span>
+              <Zap size={16} className="text-amber-400" />
+            </div>
+            <div className="text-2xl font-extrabold mt-2 text-white tracking-tight">
+              60% BTC / 40% Fuel
+            </div>
+            <div className="text-[11px] text-neutral-500 mt-1">Binance Arbitrum Deposit + Relayer EOA</div>
           </div>
         </section>
 
-        {/* Real-Time Quantitative Metrics */}
-        <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {/* Spread Bps */}
-          <div className="glass-card rounded-2xl p-5">
-            <div className="flex justify-between items-center text-xs text-neutral-400">
-              <span>SPREAD DISLOCATION</span>
-              <Activity size={14} className={isProfitableSpread ? 'text-emerald-400' : 'text-neutral-500'} />
+        {/* Autonomous Real-Time Receipt Audit Drawer */}
+        <section className="glass-panel rounded-2xl p-6 border border-white/[0.08]">
+          <div className="flex items-center justify-between pb-4 border-b border-white/[0.06]">
+            <div className="flex items-center gap-3">
+              <div className="h-3 w-3 rounded-full bg-emerald-400 shadow-[0_0_10px_#10b981]" />
+              <h2 className="text-sm font-bold tracking-widest text-white uppercase flex items-center gap-2">
+                <FileCheck size={16} className="text-emerald-400" />
+                Live Settlement Receipts & Funnel Ledger
+              </h2>
             </div>
-            <div className={`text-2xl font-bold mt-2 ${isProfitableSpread ? 'text-emerald-400' : 'text-rose-500'}`}>
-              {data ? `${data.spreadBps.toFixed(2)} bps` : '--'}
-            </div>
-            <div className="text-[11px] text-neutral-500 mt-1">Hurdle Rate: 35.00 bps</div>
+            <span className="text-xs text-neutral-400">Continuous Sub-Second Stream</span>
           </div>
 
-          {/* Sizing Engine */}
-          <div className="glass-card rounded-2xl p-5">
-            <div className="flex justify-between items-center text-xs text-neutral-400">
-              <span>OPTIMAL BORROW (x*)</span>
-              <Zap size={14} className="text-white" />
-            </div>
-            <div className="text-2xl font-bold mt-2 text-white">
-              {data ? `${data.optimalInputWeth} WETH` : '0.00 WETH'}
-            </div>
-            <div className="text-[11px] text-neutral-500 mt-1">Analytical closed-form calculus</div>
-          </div>
+          <div className="mt-4 space-y-3 max-h-80 overflow-y-auto pr-2">
+            {receipts.length > 0 ? (
+              receipts.map((r) => (
+                <div key={r.receiptId} className="glass-card rounded-xl p-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 hover:border-white/20 transition">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-white">{r.receiptId}</span>
+                      <span className="text-[10px] px-2 py-0.5 rounded bg-white/10 text-neutral-300">
+                        Block #{r.blockNumber}
+                      </span>
+                      <span className="text-[10px] text-neutral-500">{new Date(r.unixTimestamp).toLocaleTimeString()}</span>
+                    </div>
+                    <div className="text-xs text-neutral-400">
+                      Tx: <span className="font-mono text-neutral-300">{r.txHash.slice(0, 12)}...{r.txHash.slice(-8)}</span>
+                    </div>
+                  </div>
 
-          {/* Projected Profit */}
-          <div className="glass-card rounded-2xl p-5">
-            <div className="flex justify-between items-center text-xs text-neutral-400">
-              <span>PROJECTED NET EDGE</span>
-              <TrendingUp size={14} className={isProfitableSpread ? 'text-emerald-400' : 'text-neutral-500'} />
-            </div>
-            <div className={`text-2xl font-bold mt-2 ${Number(data?.projectedProfitWeth || 0) > 0 ? 'text-emerald-400' : 'text-neutral-400'}`}>
-              {data ? `${data.projectedProfitWeth} WETH` : '0.0000 WETH'}
-            </div>
-            <div className="text-[11px] text-neutral-500 mt-1">Net of lender tip & gas</div>
-          </div>
+                  <div className="flex items-center gap-6 text-xs">
+                    {/* 60% Vault Split */}
+                    <div className="text-left md:text-right">
+                      <div className="text-amber-400 font-bold flex items-center gap-1">
+                        <span>60% BTC VAULT:</span>
+                        <span>+{r.allocations.btcTarget.amount} {r.asset}</span>
+                      </div>
+                      <div className="text-[10px] text-neutral-500 truncate max-w-[160px]">
+                        {r.allocations.btcTarget.destinationAddress}
+                      </div>
+                    </div>
 
-          {/* Protection Circuit */}
-          <div className="glass-card rounded-2xl p-5">
-            <div className="flex justify-between items-center text-xs text-neutral-400">
-              <span>CIRCUIT BREAKER</span>
-              <RefreshCw size={14} className="text-neutral-400" />
-            </div>
-            <div className="text-2xl font-bold mt-2">
-              {data?.circuitBreakerTripped ? (
-                <span className="text-rose-500 font-extrabold drop-shadow-[0_0_8px_#f43f5e]">TRIPPED</span>
-              ) : (
-                <span className="text-emerald-400 font-extrabold drop-shadow-[0_0_8px_#10b981]">ARMED</span>
-              )}
-            </div>
-            <div className="text-[11px] text-neutral-500 mt-1">Zero open allowance active</div>
+                    {/* 40% Fuel Split */}
+                    <div className="text-left md:text-right">
+                      <div className="text-cyan-400 font-bold flex items-center gap-1">
+                        <span>40% FUEL:</span>
+                        <span>+{r.allocations.fuelTarget.amount} {r.asset}</span>
+                      </div>
+                      <div className="text-[10px] text-neutral-500 truncate max-w-[160px]">
+                        {r.allocations.fuelTarget.destinationAddress}
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => {
+                        const element = document.createElement("a");
+                        const file = new Blob([JSON.stringify(r, null, 2)], { type: 'application/json' });
+                        element.href = URL.createObjectURL(file);
+                        element.download = `${r.receiptId}.json`;
+                        document.body.appendChild(element);
+                        element.click();
+                      }}
+                      className="glass-pill px-3 py-1.5 rounded-lg text-xs hover:bg-white/10 text-white transition flex items-center gap-1 cursor-pointer"
+                    >
+                      <Download size={12} /> Export Receipt
+                    </button>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="py-8 text-center text-neutral-500 text-xs">
+                Listening for trade settlements... Receipts will generate and write to `/receipts` automatically.
+              </div>
+            )}
           </div>
         </section>
 
-        {/* Live Glass Graph Area */}
-        <section className="glass-panel rounded-2xl p-6">
+        {/* Active Dislocation Opportunities Card */}
+        <section className="glass-panel rounded-2xl p-5 border border-white/[0.08]">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
-              <Activity className="h-4 w-4 text-emerald-400" />
-              <h2 className="text-sm font-semibold tracking-wider text-white">LIVE ARBITRAGE VOLATILITY SPREAD</h2>
+              <Zap className="h-4 w-4 text-emerald-400" />
+              <h2 className="text-sm font-semibold tracking-wider text-white">
+                ACTIVE DISLOCATION OPPORTUNITIES (CROSS-VENUE)
+              </h2>
             </div>
-            <div className="flex items-center gap-4 text-xs">
-              <span className="flex items-center gap-1.5 text-emerald-400">
-                <span className="h-2 w-2 rounded-full bg-emerald-400" /> In-Money (&gt; 35 bps)
-              </span>
-              <span className="flex items-center gap-1.5 text-rose-500">
-                <span className="h-2 w-2 rounded-full bg-rose-500" /> Equilibrium
-              </span>
-            </div>
+            <span className="text-xs text-neutral-400">
+              Hurdle Rate: <span className="text-emerald-400 font-bold">35.00 bps</span>
+            </span>
           </div>
 
-          <div className="h-72 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={history}>
-                <defs>
-                  <linearGradient id="spreadGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor={isProfitableSpread ? '#10b981' : '#f43f5e'} stopOpacity={0.35}/>
-                    <stop offset="95%" stopColor={isProfitableSpread ? '#10b981' : '#f43f5e'} stopOpacity={0.0}/>
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
-                <XAxis dataKey="time" stroke="#737373" fontSize={11} tickLine={false} />
-                <YAxis stroke="#737373" fontSize={11} tickLine={false} domain={['dataMin - 5', 'dataMax + 5']} />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: 'rgba(15, 17, 19, 0.85)',
-                    backdropFilter: 'blur(16px)',
-                    borderColor: 'rgba(255, 255, 255, 0.1)',
-                    borderRadius: '12px',
-                    color: '#ffffff',
-                    boxShadow: '0 8px 32px 0 rgba(0,0,0,0.5)',
-                  }}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="spread"
-                  stroke={isProfitableSpread ? '#10b981' : '#f43f5e'}
-                  strokeWidth={2}
-                  fillOpacity={1}
-                  fill="url(#spreadGradient)"
-                  isAnimationActive={false}
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
+          {topOpportunities.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {topOpportunities.map((opp) => {
+                const isHurdleMet = opp.spreadBps >= 35;
+                return (
+                  <div
+                    key={opp.id}
+                    className={`rounded-xl p-4 transition duration-300 border ${
+                      isHurdleMet
+                        ? 'bg-emerald-950/20 border-emerald-500/40 shadow-[0_0_20px_rgba(16,185,129,0.15)] animate-pulse'
+                        : 'bg-white/[0.02] border-white/[0.06]'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-bold text-white tracking-wide">{opp.pairKey}</span>
+                      <span
+                        className={`px-2 py-0.5 rounded-full text-[11px] font-extrabold ${
+                          isHurdleMet
+                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                            : 'bg-neutral-800 text-neutral-400'
+                        }`}
+                      >
+                        +{opp.spreadBps} bps
+                      </span>
+                    </div>
+
+                    <div className="mt-3 flex items-center justify-between text-xs text-neutral-400">
+                      <div className="flex flex-col">
+                        <span className="text-[10px] uppercase text-neutral-500">Buy Venue</span>
+                        <span className="text-white font-medium">{opp.buyVenue}</span>
+                        <span className="text-[11px] text-emerald-400">${opp.buyPrice > 10 ? opp.buyPrice.toFixed(2) : opp.buyPrice.toPrecision(4)}</span>
+                      </div>
+
+                      <ArrowRight size={14} className="text-neutral-500 mx-2" />
+
+                      <div className="flex flex-col text-right">
+                        <span className="text-[10px] uppercase text-neutral-500">Sell Venue</span>
+                        <span className="text-white font-medium">{opp.sellVenue}</span>
+                        <span className="text-[11px] text-rose-400">${opp.sellPrice > 10 ? opp.sellPrice.toFixed(2) : opp.sellPrice.toPrecision(4)}</span>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 pt-2 border-t border-white/[0.04] flex items-center justify-between text-xs">
+                      <span className="text-neutral-400">Est. Net Edge ($10k):</span>
+                      <span className={`font-bold ${isHurdleMet ? 'text-emerald-400' : 'text-neutral-400'}`}>
+                        ${opp.projectedProfitUsd.toFixed(2)} USD
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="py-8 text-center text-xs text-neutral-500">
+              Cross-matching 50 pools across Uniswap V3, SushiSwap, and Camelot. Awaiting spreads &gt; 15 bps...
+            </div>
+          )}
         </section>
 
-        {/* Live Execution Stream */}
-        <section className="glass-panel rounded-2xl p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <Terminal className="h-4 w-4 text-white" />
-            <h2 className="text-sm font-semibold tracking-wider text-white">ATOMIC ARBITRAGE LOGS</h2>
+        {/* Paper Trade Journaling Table */}
+        <section className="glass-panel rounded-2xl p-5 border border-white/[0.08]">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Receipt className="h-4 w-4 text-cyan-400" />
+              <h2 className="text-sm font-semibold tracking-wider text-white">
+                SIMULATED (PAPER) EXECUTION JOURNAL
+              </h2>
+            </div>
+            <span className="text-xs text-neutral-400">
+              Live Flash Loan Simulation // Net of All Fees
+            </span>
           </div>
 
           <div className="overflow-x-auto">
@@ -287,55 +419,123 @@ export default function GlassTerminal() {
               <thead>
                 <tr className="border-b border-white/[0.06] text-neutral-400">
                   <th className="pb-3 font-normal">TIME</th>
-                  <th className="pb-3 font-normal">LENDER</th>
-                  <th className="pb-3 font-normal">TX HASH</th>
+                  <th className="pb-3 font-normal">PAIR</th>
+                  <th className="pb-3 font-normal">ROUTE</th>
+                  <th className="pb-3 font-normal">SPREAD</th>
+                  <th className="pb-3 font-normal">GAS</th>
                   <th className="pb-3 font-normal">STATUS</th>
-                  <th className="pb-3 font-normal text-right">NET CAPTURED</th>
+                  <th className="pb-3 font-normal text-right">SIMULATED NET PNL</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/[0.04]">
-                {data?.recentTx && data.recentTx.length > 0 ? (
-                  data.recentTx.map((tx, idx) => (
-                    <tr key={idx} className="hover:bg-white/[0.02] transition">
-                      <td className="py-3 text-neutral-400">{tx.time}</td>
-                      <td className="py-3 text-white font-medium">{tx.lender}</td>
-                      <td className="py-3 text-white flex items-center gap-1.5">
-                        <span className="font-mono text-neutral-300">{tx.hash.slice(0, 10)}...{tx.hash.slice(-8)}</span>
-                        <a
-                          href={`https://arbiscan.io/tx/${tx.hash}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-neutral-500 hover:text-white transition"
-                        >
-                          <ExternalLink size={12} />
-                        </a>
+                {paperJournal.length > 0 ? (
+                  paperJournal.map((trade) => (
+                    <tr key={trade.id} className="hover:bg-white/[0.02] transition">
+                      <td className="py-3 text-neutral-400 font-mono">{trade.timeFormatted}</td>
+                      <td className="py-3 font-bold text-white">{trade.pairKey}</td>
+                      <td className="py-3 text-neutral-300">
+                        {trade.buyVenue} <span className="text-neutral-500">→</span> {trade.sellVenue}
                       </td>
+                      <td className="py-3 text-emerald-400 font-semibold">+{trade.spreadBps} bps</td>
+                      <td className="py-3 text-neutral-400 font-mono">${trade.estimatedGasUsd.toFixed(2)}</td>
                       <td className="py-3">
-                        <span
-                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                            tx.status === 'SUCCESS'
-                              ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                              : 'bg-rose-500/10 text-rose-500 border border-rose-500/20'
-                          }`}
-                        >
-                          {tx.status}
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                          {trade.status}
                         </span>
                       </td>
-                      <td className="py-3 text-right font-bold text-emerald-400">
-                        +{tx.profit} WETH
+                      <td className="py-3 text-right font-extrabold text-emerald-400">
+                        +${trade.netProfitUsd.toFixed(2)} USD
                       </td>
                     </tr>
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={5} className="py-8 text-center text-neutral-500">
-                      Engine monitoring Arbitrum One sequencer. Waiting for eligible price dislocations...
+                    <td colSpan={7} className="py-8 text-center text-neutral-500 text-xs">
+                      Simulated execution engine armed. Monitoring for opportunities crossing the 35.00 bps breakeven hurdle...
                     </td>
                   </tr>
                 )}
               </tbody>
             </table>
           </div>
+        </section>
+
+        {/* Matrix Filter & Search Toolbar */}
+        <div className="glass-card rounded-2xl p-4 flex flex-col sm:flex-row gap-4 items-center justify-between">
+          <div className="relative w-full sm:w-80">
+            <Search className="absolute left-3 top-2.5 h-4 w-4 text-neutral-500" />
+            <input
+              type="text"
+              placeholder="Search token pair (e.g. WETH, ARB, GMX)..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full pl-9 pr-4 py-2 bg-white/[0.04] border border-white/[0.08] rounded-xl text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-white/20"
+            />
+          </div>
+
+          <div className="flex items-center gap-2 w-full sm:w-auto">
+            {(['ALL', 'UniswapV3', 'SushiSwap', 'Camelot'] as const).map((v) => (
+              <button
+                key={v}
+                onClick={() => setVenueFilter(v)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${
+                  venueFilter === v
+                    ? 'bg-white/10 text-white border border-white/20'
+                    : 'text-neutral-400 hover:text-white hover:bg-white/[0.05]'
+                }`}
+              >
+                {v}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Dynamic 50-Pool Liquidity Grid */}
+        <section className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+          {filteredPools.length > 0 ? (
+            filteredPools.map((pool) => {
+              const isZero = pool.price === 0;
+              return (
+                <div
+                  key={pool.id}
+                  className="glass-card rounded-xl p-3.5 flex flex-col justify-between hover:border-white/20 transition group"
+                >
+                  <div className="flex justify-between items-start">
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/[0.05] text-neutral-400">
+                      {pool.venue}
+                    </span>
+                    {pool.status === 'ONLINE' ? (
+                      <CheckCircle2 size={12} className="text-emerald-400" />
+                    ) : (
+                      <AlertCircle size={12} className="text-amber-400" />
+                    )}
+                  </div>
+
+                  <div className="my-2">
+                    <h3 className="text-xs font-bold text-white group-hover:text-emerald-300 transition truncate">
+                      {pool.name}
+                    </h3>
+                    <div className="mt-1 flex items-baseline gap-1">
+                      <span className={`text-base font-extrabold ${isZero ? 'text-neutral-500' : 'text-emerald-400'}`}>
+                        {isZero ? '--' : `$${pool.formattedPrice}`}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="pt-2 border-t border-white/[0.04] flex justify-between items-center text-[10px] text-neutral-500">
+                    <span>Pool ID: {pool.id}</span>
+                    <span className="text-neutral-400">Live Tick</span>
+                  </div>
+                </div>
+              );
+            })
+          ) : (
+            <div className="col-span-full py-16 text-center text-neutral-500 text-xs">
+              {isConnected
+                ? 'No pools matching filter criteria.'
+                : 'Awaiting Multicall3 aggregate stream from bot engine...'}
+            </div>
+          )}
         </section>
       </div>
     </div>

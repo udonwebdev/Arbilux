@@ -11,7 +11,7 @@ contract VerifyDeploymentTest is Test {
     VerifyDeployment public verifier;
 
     function setUp() public {
-        executor = new ArbiluxExecutor(AAVE_PROVIDER);
+        executor = new ArbiluxExecutor(AAVE_PROVIDER, payable(address(this)), payable(address(0xbeef)));
         verifier = new VerifyDeployment();
     }
 

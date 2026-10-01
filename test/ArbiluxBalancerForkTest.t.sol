@@ -15,7 +15,7 @@ contract ArbiluxBalancerForkTest is Test {
 
     function setUp() public {
         owner = address(this);
-        executor = new ArbiluxExecutor(AAVE_PROVIDER);
+        executor = new ArbiluxExecutor(AAVE_PROVIDER, payable(owner), payable(address(0xbeef)));
     }
 
     function test_BalancerZeroFeeFlashBorrowAndRepay() public {

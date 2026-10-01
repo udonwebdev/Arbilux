@@ -8,60 +8,901 @@ export interface PoolConfig {
   id: string;
   name: string;
   venue: 'UniswapV3' | 'SushiSwap' | 'Camelot';
-  dex?: 'UniswapV3' | 'SushiSwap' | 'Camelot';
   poolAddress: string;
   token0: Token;
   token1: Token;
-  feeTier?: number; // Only for Uniswap V3
+  feeTier?: number;
 }
 
-// Arbitrum One Core Verified Tokens
 export const TOKENS: Record<string, Token> = {
-  WETH: { symbol: 'WETH', address: '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1', decimals: 18 },
-  USDC: { symbol: 'USDC', address: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831', decimals: 6 },
-  USDT: { symbol: 'USDT', address: '0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9', decimals: 6 },
-  ARB:  { symbol: 'ARB',  address: '0x912CE59144191C1204E64559FE8253a0e49E6548', decimals: 18 },
-  WBTC: { symbol: 'WBTC', address: '0x2f2a2543B76A4166549F7aaB2e75Bef0aefC5B0f', decimals: 8 },
-  DAI:  { symbol: 'DAI',  address: '0xDA10778327802011996d0120E2e15ca3010bCca7', decimals: 18 },
-  GMX:  { symbol: 'GMX',  address: '0xfc5A1A6EB076a2C7aD06eD22C90d7E710E35ad0a', decimals: 18 },
-  LINK: { symbol: 'LINK', address: '0xf97f4df75117a78c1A5a0DBb814Af92458539FB4', decimals: 18 },
+  "WETH": {
+    "symbol": "WETH",
+    "address": "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1",
+    "decimals": 18
+  },
+  "USDC": {
+    "symbol": "USDC",
+    "address": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+    "decimals": 6
+  },
+  "USDCe": {
+    "symbol": "USDC.e",
+    "address": "0xFF970A61A04b1cA14834A43f5dE4533eBDDB5CC8",
+    "decimals": 6
+  },
+  "USDT": {
+    "symbol": "USDT",
+    "address": "0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9",
+    "decimals": 6
+  },
+  "ARB": {
+    "symbol": "ARB",
+    "address": "0x912CE59144191C1204E64559FE8253a0e49E6548",
+    "decimals": 18
+  },
+  "WBTC": {
+    "symbol": "WBTC",
+    "address": "0x2f2a2543B76A4166549F7aaB2e75Bef0aefC5B0f",
+    "decimals": 8
+  },
+  "DAI": {
+    "symbol": "DAI",
+    "address": "0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1",
+    "decimals": 18
+  },
+  "GMX": {
+    "symbol": "GMX",
+    "address": "0xfc5A1A6EB076a2C7aD06eD22C90d7E710E35ad0a",
+    "decimals": 18
+  },
+  "LINK": {
+    "symbol": "LINK",
+    "address": "0xf97f4df75117a78c1A5a0DBb814Af92458539FB4",
+    "decimals": 18
+  },
+  "MAGIC": {
+    "symbol": "MAGIC",
+    "address": "0x539bdE0d7Dbd336b79148AA742883198BBF60342",
+    "decimals": 18
+  },
+  "PENDLE": {
+    "symbol": "PENDLE",
+    "address": "0x0c880f6761F1af8d9Aa9C466984b80DAb9a8c9e8",
+    "decimals": 18
+  },
+  "RDNT": {
+    "symbol": "RDNT",
+    "address": "0x3082CC23568eA640225c2467653dB90e9250AaA0",
+    "decimals": 18
+  }
 };
 
-// 50 Production Monitoring Targets on Arbitrum One
 export const WATCH_POOLS: PoolConfig[] = [
-  // WETH / USDC Hub
-  { id: 'uni-weth-usdc-005', name: 'WETH/USDC 0.05%', venue: 'UniswapV3', poolAddress: '0xC31E54c7a869B9FcBEcc14363CF510d1c41fa443', token0: TOKENS.WETH, token1: TOKENS.USDC, feeTier: 500 },
-  { id: 'uni-weth-usdc-030', name: 'WETH/USDC 0.30%', venue: 'UniswapV3', poolAddress: '0x17c14D2c40463243069721223A344455b24274a7', token0: TOKENS.WETH, token1: TOKENS.USDC, feeTier: 3000 },
-  { id: 'sushi-weth-usdc',   name: 'WETH/USDC Sushi', venue: 'SushiSwap', poolAddress: '0x905dfCD5649217c42684f23958568e533C711Aa3', token0: TOKENS.WETH, token1: TOKENS.USDC },
-  { id: 'cam-weth-usdc',     name: 'WETH/USDC Camelot', venue: 'Camelot',   poolAddress: '0x84652bb2539513A82248c5948A086b5b35AB889F', token0: TOKENS.WETH, token1: TOKENS.USDC },
-
-  // WETH / USDT Hub
-  { id: 'uni-weth-usdt-005', name: 'WETH/USDT 0.05%', venue: 'UniswapV3', poolAddress: '0x641C00A822e8b671738d32a431a4Fb6074E5c79d', token0: TOKENS.WETH, token1: TOKENS.USDT, feeTier: 500 },
-  { id: 'sushi-weth-usdt',   name: 'WETH/USDT Sushi', venue: 'SushiSwap', poolAddress: '0xCb0E5bFa72bBb4d16AB5aA0c60601c438F04b4ad', token0: TOKENS.WETH, token1: TOKENS.USDT },
-  { id: 'cam-weth-usdt',     name: 'WETH/USDT Camelot', venue: 'Camelot',   poolAddress: '0x68A246B55E7F7Ab5f73dE1F12301c345b1E6f81C', token0: TOKENS.WETH, token1: TOKENS.USDT },
-
-  // ARB / WETH Hub
-  { id: 'uni-arb-weth-005',  name: 'ARB/WETH 0.05%',  venue: 'UniswapV3', poolAddress: '0xC6F780497A95e246EB1436f5e40e4036Ec7E730b', token0: TOKENS.ARB, token1: TOKENS.WETH, feeTier: 500 },
-  { id: 'sushi-arb-weth',    name: 'ARB/WETH Sushi',  venue: 'SushiSwap', poolAddress: '0x4384a51e604F5E64669fF1626fD5e8E88e22C66A', token0: TOKENS.ARB, token1: TOKENS.WETH },
-  { id: 'cam-arb-weth',      name: 'ARB/WETH Camelot', venue: 'Camelot',   poolAddress: '0x79219A9f23EEad5E7B7eC26d24666cf7c7F08323', token0: TOKENS.ARB, token1: TOKENS.WETH },
-
-  // ARB / USDC Hub
-  { id: 'uni-arb-usdc-005',  name: 'ARB/USDC 0.05%',  venue: 'UniswapV3', poolAddress: '0xcda53b1f66614552f834ceef361a8d12a0b8da81', token0: TOKENS.ARB, token1: TOKENS.USDC, feeTier: 500 },
-  { id: 'sushi-arb-usdc',    name: 'ARB/USDC Sushi',  venue: 'SushiSwap', poolAddress: '0x62919426fD1D2d6aD39499B308696F89cBE41C04', token0: TOKENS.ARB, token1: TOKENS.USDC },
-
-  // WBTC / WETH Hub
-  { id: 'uni-wbtc-weth-005', name: 'WBTC/WETH 0.05%', venue: 'UniswapV3', poolAddress: '0x2f5e87C931237A3a789334556046cD3E28fcbcd7', token0: TOKENS.WBTC, token1: TOKENS.WETH, feeTier: 500 },
-  { id: 'sushi-wbtc-weth',   name: 'WBTC/WETH Sushi', venue: 'SushiSwap', poolAddress: '0x0d4a11d5EEaaC28EC3F61d100daF4d40471f1852', token0: TOKENS.WBTC, token1: TOKENS.WETH },
-
-  // GMX / WETH Hub
-  { id: 'uni-gmx-weth-030',  name: 'GMX/WETH 0.30%',  venue: 'UniswapV3', poolAddress: '0x80A9ae39310abf666A87C743d6ebBD0E8C42158E', token0: TOKENS.GMX, token1: TOKENS.WETH, feeTier: 3000 },
-  { id: 'cam-gmx-weth',      name: 'GMX/WETH Camelot', venue: 'Camelot',   poolAddress: '0xb2D106eF383D6b78E3a677Ac33d6AcA4fa5062a4', token0: TOKENS.GMX, token1: TOKENS.WETH },
-
-  // LINK / WETH Hub
-  { id: 'uni-link-weth-030', name: 'LINK/WETH 0.30%', venue: 'UniswapV3', poolAddress: '0x68560882e3b3383a15291bB1e257B4397754b2d5', token0: TOKENS.LINK, token1: TOKENS.WETH, feeTier: 3000 },
-  { id: 'sushi-link-weth',   name: 'LINK/WETH Sushi', venue: 'SushiSwap', poolAddress: '0x815b3644E6c29bE5e3B3A5A398e5D715003507d4', token0: TOKENS.LINK, token1: TOKENS.WETH },
-
-  // Stable Swaps (USDC / USDT / DAI)
-  { id: 'uni-usdc-usdt-001', name: 'USDC/USDT 0.01%', venue: 'UniswapV3', poolAddress: '0xbE3ad6a5669dc0B8b12Febc03608860c31e2eef6', token0: TOKENS.USDC, token1: TOKENS.USDT, feeTier: 100 },
-  { id: 'uni-dai-usdc-001',  name: 'DAI/USDC 0.01%',  venue: 'UniswapV3', poolAddress: '0x717f90e1B53f58a9D9Fe2fe286eA12B8b4b73E71', token0: TOKENS.DAI,  token1: TOKENS.USDC, feeTier: 100 },
+  {
+    "id": "p01",
+    "name": "WETH/USDC (0.05%)",
+    "venue": "UniswapV3",
+    "token0": {
+      "symbol": "WETH",
+      "address": "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1",
+      "decimals": 18
+    },
+    "token1": {
+      "symbol": "USDC",
+      "address": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+      "decimals": 6
+    },
+    "feeTier": 500,
+    "poolAddress": "0xC6962004f452bE9203591991D15f6b388e09E8D0"
+  },
+  {
+    "id": "p02",
+    "name": "WETH/USDC (0.30%)",
+    "venue": "UniswapV3",
+    "token0": {
+      "symbol": "WETH",
+      "address": "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1",
+      "decimals": 18
+    },
+    "token1": {
+      "symbol": "USDC",
+      "address": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+      "decimals": 6
+    },
+    "feeTier": 3000,
+    "poolAddress": "0xc473e2aEE3441BF9240Be85eb122aBB059A3B57c"
+  },
+  {
+    "id": "p03",
+    "name": "WETH/USDC",
+    "venue": "SushiSwap",
+    "token0": {
+      "symbol": "WETH",
+      "address": "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1",
+      "decimals": 18
+    },
+    "token1": {
+      "symbol": "USDC",
+      "address": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+      "decimals": 6
+    },
+    "poolAddress": "0x57b85FEf094e10b5eeCDF350Af688299E9553378"
+  },
+  {
+    "id": "p04",
+    "name": "WETH/USDC",
+    "venue": "Camelot",
+    "token0": {
+      "symbol": "WETH",
+      "address": "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1",
+      "decimals": 18
+    },
+    "token1": {
+      "symbol": "USDC",
+      "address": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+      "decimals": 6
+    },
+    "poolAddress": "0x54B26fAf3671677C19F70c4B879A6f7B898F732c"
+  },
+  {
+    "id": "p05",
+    "name": "WETH/USDT (0.05%)",
+    "venue": "UniswapV3",
+    "token0": {
+      "symbol": "WETH",
+      "address": "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1",
+      "decimals": 18
+    },
+    "token1": {
+      "symbol": "USDT",
+      "address": "0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9",
+      "decimals": 6
+    },
+    "feeTier": 500,
+    "poolAddress": "0x641C00A822e8b671738d32a431a4Fb6074E5c79d"
+  },
+  {
+    "id": "p06",
+    "name": "WETH/USDT (0.30%)",
+    "venue": "UniswapV3",
+    "token0": {
+      "symbol": "WETH",
+      "address": "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1",
+      "decimals": 18
+    },
+    "token1": {
+      "symbol": "USDT",
+      "address": "0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9",
+      "decimals": 6
+    },
+    "feeTier": 3000,
+    "poolAddress": "0xc82819F72A9e77E2c0c3A69B3196478f44303cf4"
+  },
+  {
+    "id": "p07",
+    "name": "WETH/USDT",
+    "venue": "SushiSwap",
+    "token0": {
+      "symbol": "WETH",
+      "address": "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1",
+      "decimals": 18
+    },
+    "token1": {
+      "symbol": "USDT",
+      "address": "0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9",
+      "decimals": 6
+    },
+    "poolAddress": "0xCB0E5bFa72bBb4d16AB5aA0c60601c438F04b4ad"
+  },
+  {
+    "id": "p08",
+    "name": "WETH/USDT",
+    "venue": "Camelot",
+    "token0": {
+      "symbol": "WETH",
+      "address": "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1",
+      "decimals": 18
+    },
+    "token1": {
+      "symbol": "USDT",
+      "address": "0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9",
+      "decimals": 6
+    },
+    "poolAddress": "0x97b192198d164C2a1834295e302B713bc32C8F1d"
+  },
+  {
+    "id": "p09",
+    "name": "ARB/WETH (0.05%)",
+    "venue": "UniswapV3",
+    "token0": {
+      "symbol": "ARB",
+      "address": "0x912CE59144191C1204E64559FE8253a0e49E6548",
+      "decimals": 18
+    },
+    "token1": {
+      "symbol": "WETH",
+      "address": "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1",
+      "decimals": 18
+    },
+    "feeTier": 500,
+    "poolAddress": "0xC6F780497A95e246EB9449f5e4770916DCd6396A"
+  },
+  {
+    "id": "p10",
+    "name": "ARB/WETH (0.30%)",
+    "venue": "UniswapV3",
+    "token0": {
+      "symbol": "ARB",
+      "address": "0x912CE59144191C1204E64559FE8253a0e49E6548",
+      "decimals": 18
+    },
+    "token1": {
+      "symbol": "WETH",
+      "address": "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1",
+      "decimals": 18
+    },
+    "feeTier": 3000,
+    "poolAddress": "0x92c63d0e701CAAe670C9415d91C474F686298f00"
+  },
+  {
+    "id": "p11",
+    "name": "ARB/WETH",
+    "venue": "SushiSwap",
+    "token0": {
+      "symbol": "ARB",
+      "address": "0x912CE59144191C1204E64559FE8253a0e49E6548",
+      "decimals": 18
+    },
+    "token1": {
+      "symbol": "WETH",
+      "address": "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1",
+      "decimals": 18
+    },
+    "poolAddress": "0xBF6CBb1F40a542aF50839CaD01b0dc1747F11e18"
+  },
+  {
+    "id": "p12",
+    "name": "ARB/WETH",
+    "venue": "Camelot",
+    "token0": {
+      "symbol": "ARB",
+      "address": "0x912CE59144191C1204E64559FE8253a0e49E6548",
+      "decimals": 18
+    },
+    "token1": {
+      "symbol": "WETH",
+      "address": "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1",
+      "decimals": 18
+    },
+    "poolAddress": "0xa6c5C7D189fA4eB5Af8ba34E63dCDD3a635D433f"
+  },
+  {
+    "id": "p13",
+    "name": "ARB/USDC (0.05%)",
+    "venue": "UniswapV3",
+    "token0": {
+      "symbol": "ARB",
+      "address": "0x912CE59144191C1204E64559FE8253a0e49E6548",
+      "decimals": 18
+    },
+    "token1": {
+      "symbol": "USDC",
+      "address": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+      "decimals": 6
+    },
+    "feeTier": 500,
+    "poolAddress": "0xb0f6cA40411360c03d41C5fFc5F179b8403CdcF8"
+  },
+  {
+    "id": "p14",
+    "name": "ARB/USDC (0.30%)",
+    "venue": "UniswapV3",
+    "token0": {
+      "symbol": "ARB",
+      "address": "0x912CE59144191C1204E64559FE8253a0e49E6548",
+      "decimals": 18
+    },
+    "token1": {
+      "symbol": "USDC",
+      "address": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+      "decimals": 6
+    },
+    "feeTier": 3000,
+    "poolAddress": "0xaEBDcA1Bc8d89177EbE2308d62af5e74885DcCc3"
+  },
+  {
+    "id": "p15",
+    "name": "ARB/USDC",
+    "venue": "SushiSwap",
+    "token0": {
+      "symbol": "ARB",
+      "address": "0x912CE59144191C1204E64559FE8253a0e49E6548",
+      "decimals": 18
+    },
+    "token1": {
+      "symbol": "USDC",
+      "address": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+      "decimals": 6
+    },
+    "poolAddress": "0x1F42712540f04478EA8fbb5a27D850a1cB1884f6"
+  },
+  {
+    "id": "p16",
+    "name": "ARB/USDC",
+    "venue": "Camelot",
+    "token0": {
+      "symbol": "ARB",
+      "address": "0x912CE59144191C1204E64559FE8253a0e49E6548",
+      "decimals": 18
+    },
+    "token1": {
+      "symbol": "USDC",
+      "address": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+      "decimals": 6
+    },
+    "poolAddress": "0x138c115bdcc8709D7F782eCC29DfB3829907d74B"
+  },
+  {
+    "id": "p17",
+    "name": "WBTC/WETH (0.05%)",
+    "venue": "UniswapV3",
+    "token0": {
+      "symbol": "WBTC",
+      "address": "0x2f2a2543B76A4166549F7aaB2e75Bef0aefC5B0f",
+      "decimals": 8
+    },
+    "token1": {
+      "symbol": "WETH",
+      "address": "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1",
+      "decimals": 18
+    },
+    "feeTier": 500,
+    "poolAddress": "0x2f5e87C9312fa29aed5c179E456625D79015299c"
+  },
+  {
+    "id": "p18",
+    "name": "WBTC/WETH (0.30%)",
+    "venue": "UniswapV3",
+    "token0": {
+      "symbol": "WBTC",
+      "address": "0x2f2a2543B76A4166549F7aaB2e75Bef0aefC5B0f",
+      "decimals": 8
+    },
+    "token1": {
+      "symbol": "WETH",
+      "address": "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1",
+      "decimals": 18
+    },
+    "feeTier": 3000,
+    "poolAddress": "0x149e36E72726e0BceA5c59d40df2c43F60f5A22D"
+  },
+  {
+    "id": "p19",
+    "name": "WBTC/WETH",
+    "venue": "SushiSwap",
+    "token0": {
+      "symbol": "WBTC",
+      "address": "0x2f2a2543B76A4166549F7aaB2e75Bef0aefC5B0f",
+      "decimals": 8
+    },
+    "token1": {
+      "symbol": "WETH",
+      "address": "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1",
+      "decimals": 18
+    },
+    "poolAddress": "0x515e252b2b5c22b4b2b6Df66c2eBeeA871AA4d69"
+  },
+  {
+    "id": "p20",
+    "name": "WBTC/WETH",
+    "venue": "Camelot",
+    "token0": {
+      "symbol": "WBTC",
+      "address": "0x2f2a2543B76A4166549F7aaB2e75Bef0aefC5B0f",
+      "decimals": 8
+    },
+    "token1": {
+      "symbol": "WETH",
+      "address": "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1",
+      "decimals": 18
+    },
+    "poolAddress": "0x96059759C6492fb4e8a9777b65f307F2C811a34F"
+  },
+  {
+    "id": "p21",
+    "name": "WBTC/USDC (0.05%)",
+    "venue": "UniswapV3",
+    "token0": {
+      "symbol": "WBTC",
+      "address": "0x2f2a2543B76A4166549F7aaB2e75Bef0aefC5B0f",
+      "decimals": 8
+    },
+    "token1": {
+      "symbol": "USDC",
+      "address": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+      "decimals": 6
+    },
+    "feeTier": 500,
+    "poolAddress": "0x0E4831319A50228B9e450861297aB92dee15B44F"
+  },
+  {
+    "id": "p22",
+    "name": "WBTC/USDC (0.30%)",
+    "venue": "UniswapV3",
+    "token0": {
+      "symbol": "WBTC",
+      "address": "0x2f2a2543B76A4166549F7aaB2e75Bef0aefC5B0f",
+      "decimals": 8
+    },
+    "token1": {
+      "symbol": "USDC",
+      "address": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+      "decimals": 6
+    },
+    "feeTier": 3000,
+    "poolAddress": "0x6985cb98CE393FCE8d6272127F39013f61e36166"
+  },
+  {
+    "id": "p23",
+    "name": "WBTC/USDC",
+    "venue": "SushiSwap",
+    "token0": {
+      "symbol": "WBTC",
+      "address": "0x2f2a2543B76A4166549F7aaB2e75Bef0aefC5B0f",
+      "decimals": 8
+    },
+    "token1": {
+      "symbol": "USDC",
+      "address": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+      "decimals": 6
+    },
+    "poolAddress": "0x75E5b52DC1785E3d99c41d8136b12118b13C63ae"
+  },
+  {
+    "id": "p24",
+    "name": "WBTC/USDC",
+    "venue": "Camelot",
+    "token0": {
+      "symbol": "WBTC",
+      "address": "0x2f2a2543B76A4166549F7aaB2e75Bef0aefC5B0f",
+      "decimals": 8
+    },
+    "token1": {
+      "symbol": "USDC",
+      "address": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+      "decimals": 6
+    },
+    "poolAddress": "0xad94D6fBFdFC29DEE39417A822994D53a4f287e9"
+  },
+  {
+    "id": "p25",
+    "name": "GMX/WETH (0.30%)",
+    "venue": "UniswapV3",
+    "token0": {
+      "symbol": "GMX",
+      "address": "0xfc5A1A6EB076a2C7aD06eD22C90d7E710E35ad0a",
+      "decimals": 18
+    },
+    "token1": {
+      "symbol": "WETH",
+      "address": "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1",
+      "decimals": 18
+    },
+    "feeTier": 3000,
+    "poolAddress": "0x1aEEdD3727A6431b8F070C0aFaA81Cc74f273882"
+  },
+  {
+    "id": "p26",
+    "name": "GMX/WETH (1.00%)",
+    "venue": "UniswapV3",
+    "token0": {
+      "symbol": "GMX",
+      "address": "0xfc5A1A6EB076a2C7aD06eD22C90d7E710E35ad0a",
+      "decimals": 18
+    },
+    "token1": {
+      "symbol": "WETH",
+      "address": "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1",
+      "decimals": 18
+    },
+    "feeTier": 10000,
+    "poolAddress": "0x80A9ae39310abf666A87C743d6ebBD0E8C42158E"
+  },
+  {
+    "id": "p27",
+    "name": "GMX/WETH",
+    "venue": "SushiSwap",
+    "token0": {
+      "symbol": "GMX",
+      "address": "0xfc5A1A6EB076a2C7aD06eD22C90d7E710E35ad0a",
+      "decimals": 18
+    },
+    "token1": {
+      "symbol": "WETH",
+      "address": "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1",
+      "decimals": 18
+    },
+    "poolAddress": "0x05C6F695Ad50C16299BEdCa3Fe9059B56550082f"
+  },
+  {
+    "id": "p28",
+    "name": "GMX/WETH",
+    "venue": "Camelot",
+    "token0": {
+      "symbol": "GMX",
+      "address": "0xfc5A1A6EB076a2C7aD06eD22C90d7E710E35ad0a",
+      "decimals": 18
+    },
+    "token1": {
+      "symbol": "WETH",
+      "address": "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1",
+      "decimals": 18
+    },
+    "poolAddress": "0xdc2167F4A5DeC5401EcEFF1CB55C3573A13F24bD"
+  },
+  {
+    "id": "p29",
+    "name": "LINK/WETH (0.30%)",
+    "venue": "UniswapV3",
+    "token0": {
+      "symbol": "LINK",
+      "address": "0xf97f4df75117a78c1A5a0DBb814Af92458539FB4",
+      "decimals": 18
+    },
+    "token1": {
+      "symbol": "WETH",
+      "address": "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1",
+      "decimals": 18
+    },
+    "feeTier": 3000,
+    "poolAddress": "0x468b88941e7Cc0B88c1869d68ab6b570bCEF62Ff"
+  },
+  {
+    "id": "p30",
+    "name": "LINK/WETH (0.05%)",
+    "venue": "UniswapV3",
+    "token0": {
+      "symbol": "LINK",
+      "address": "0xf97f4df75117a78c1A5a0DBb814Af92458539FB4",
+      "decimals": 18
+    },
+    "token1": {
+      "symbol": "WETH",
+      "address": "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1",
+      "decimals": 18
+    },
+    "feeTier": 500,
+    "poolAddress": "0x91308bC9Ce8Ca2db82aA30C65619856cC939d907"
+  },
+  {
+    "id": "p31",
+    "name": "LINK/WETH",
+    "venue": "SushiSwap",
+    "token0": {
+      "symbol": "LINK",
+      "address": "0xf97f4df75117a78c1A5a0DBb814Af92458539FB4",
+      "decimals": 18
+    },
+    "token1": {
+      "symbol": "WETH",
+      "address": "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1",
+      "decimals": 18
+    },
+    "poolAddress": "0x7050A8908E2a60899D8788015148241f0993a3FD"
+  },
+  {
+    "id": "p32",
+    "name": "LINK/WETH",
+    "venue": "Camelot",
+    "token0": {
+      "symbol": "LINK",
+      "address": "0xf97f4df75117a78c1A5a0DBb814Af92458539FB4",
+      "decimals": 18
+    },
+    "token1": {
+      "symbol": "WETH",
+      "address": "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1",
+      "decimals": 18
+    },
+    "poolAddress": "0x65Cfd8fB82213971076457756dFEdB6143391983"
+  },
+  {
+    "id": "p33",
+    "name": "MAGIC/WETH (0.30%)",
+    "venue": "UniswapV3",
+    "token0": {
+      "symbol": "MAGIC",
+      "address": "0x539bdE0d7Dbd336b79148AA742883198BBF60342",
+      "decimals": 18
+    },
+    "token1": {
+      "symbol": "WETH",
+      "address": "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1",
+      "decimals": 18
+    },
+    "feeTier": 3000,
+    "poolAddress": "0x59D72DDB29Da32847A4665d08ffc8464A7185FAE"
+  },
+  {
+    "id": "p34",
+    "name": "MAGIC/WETH (1.00%)",
+    "venue": "UniswapV3",
+    "token0": {
+      "symbol": "MAGIC",
+      "address": "0x539bdE0d7Dbd336b79148AA742883198BBF60342",
+      "decimals": 18
+    },
+    "token1": {
+      "symbol": "WETH",
+      "address": "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1",
+      "decimals": 18
+    },
+    "feeTier": 10000,
+    "poolAddress": "0x7e7FB3CCEcA5F2ac952eDF221fd2a9f62E411980"
+  },
+  {
+    "id": "p35",
+    "name": "MAGIC/WETH",
+    "venue": "SushiSwap",
+    "token0": {
+      "symbol": "MAGIC",
+      "address": "0x539bdE0d7Dbd336b79148AA742883198BBF60342",
+      "decimals": 18
+    },
+    "token1": {
+      "symbol": "WETH",
+      "address": "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1",
+      "decimals": 18
+    },
+    "poolAddress": "0xB7E50106A5bd3Cf21AF210A755F9C8740890A8c9"
+  },
+  {
+    "id": "p36",
+    "name": "MAGIC/WETH",
+    "venue": "Camelot",
+    "token0": {
+      "symbol": "MAGIC",
+      "address": "0x539bdE0d7Dbd336b79148AA742883198BBF60342",
+      "decimals": 18
+    },
+    "token1": {
+      "symbol": "WETH",
+      "address": "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1",
+      "decimals": 18
+    },
+    "poolAddress": "0xE8b2C9cBfd52CF9A157724e6416440566fA03150"
+  },
+  {
+    "id": "p37",
+    "name": "PENDLE/WETH (0.30%)",
+    "venue": "UniswapV3",
+    "token0": {
+      "symbol": "PENDLE",
+      "address": "0x0c880f6761F1af8d9Aa9C466984b80DAb9a8c9e8",
+      "decimals": 18
+    },
+    "token1": {
+      "symbol": "WETH",
+      "address": "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1",
+      "decimals": 18
+    },
+    "feeTier": 3000,
+    "poolAddress": "0xdbaeB7f0DFe3a0AAFD798CCECB5b22E708f7852c"
+  },
+  {
+    "id": "p38",
+    "name": "PENDLE/WETH",
+    "venue": "Camelot",
+    "token0": {
+      "symbol": "PENDLE",
+      "address": "0x0c880f6761F1af8d9Aa9C466984b80DAb9a8c9e8",
+      "decimals": 18
+    },
+    "token1": {
+      "symbol": "WETH",
+      "address": "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1",
+      "decimals": 18
+    },
+    "poolAddress": "0xBfCa4230115DE8341F3A3d5e8845fFb3337B2Be3"
+  },
+  {
+    "id": "p39",
+    "name": "RDNT/WETH (0.30%)",
+    "venue": "UniswapV3",
+    "token0": {
+      "symbol": "RDNT",
+      "address": "0x3082CC23568eA640225c2467653dB90e9250AaA0",
+      "decimals": 18
+    },
+    "token1": {
+      "symbol": "WETH",
+      "address": "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1",
+      "decimals": 18
+    },
+    "feeTier": 3000,
+    "poolAddress": "0x446BF9748B4eA044dd759d9B9311C70491dF8F29"
+  },
+  {
+    "id": "p40",
+    "name": "RDNT/WETH",
+    "venue": "Camelot",
+    "token0": {
+      "symbol": "RDNT",
+      "address": "0x3082CC23568eA640225c2467653dB90e9250AaA0",
+      "decimals": 18
+    },
+    "token1": {
+      "symbol": "WETH",
+      "address": "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1",
+      "decimals": 18
+    },
+    "poolAddress": "0x2b07A6c54d3A40513ebc3650b05F953162Af0d7b"
+  },
+  {
+    "id": "p41",
+    "name": "USDC/USDT (0.01%)",
+    "venue": "UniswapV3",
+    "token0": {
+      "symbol": "USDC",
+      "address": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+      "decimals": 6
+    },
+    "token1": {
+      "symbol": "USDT",
+      "address": "0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9",
+      "decimals": 6
+    },
+    "feeTier": 100,
+    "poolAddress": "0xbE3aD6a5669Dc0B8b12FeBC03608860C31E2eef6"
+  },
+  {
+    "id": "p42",
+    "name": "USDC/USDT (0.05%)",
+    "venue": "UniswapV3",
+    "token0": {
+      "symbol": "USDC",
+      "address": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+      "decimals": 6
+    },
+    "token1": {
+      "symbol": "USDT",
+      "address": "0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9",
+      "decimals": 6
+    },
+    "feeTier": 500,
+    "poolAddress": "0xbcE73c2e5A623054B0e8e2428E956f4b9d0412a5"
+  },
+  {
+    "id": "p43",
+    "name": "USDC/USDT",
+    "venue": "SushiSwap",
+    "token0": {
+      "symbol": "USDC",
+      "address": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+      "decimals": 6
+    },
+    "token1": {
+      "symbol": "USDT",
+      "address": "0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9",
+      "decimals": 6
+    },
+    "poolAddress": "0x8CebFB915F7aa8474ABcF0fff11d869a256EB887"
+  },
+  {
+    "id": "p44",
+    "name": "DAI/USDC (0.01%)",
+    "venue": "UniswapV3",
+    "token0": {
+      "symbol": "DAI",
+      "address": "0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1",
+      "decimals": 18
+    },
+    "token1": {
+      "symbol": "USDC",
+      "address": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+      "decimals": 6
+    },
+    "feeTier": 100,
+    "poolAddress": "0x7CF803e8d82A50504180f417B8bC7a493C0a0503"
+  },
+  {
+    "id": "p45",
+    "name": "DAI/USDC (0.05%)",
+    "venue": "UniswapV3",
+    "token0": {
+      "symbol": "DAI",
+      "address": "0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1",
+      "decimals": 18
+    },
+    "token1": {
+      "symbol": "USDC",
+      "address": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+      "decimals": 6
+    },
+    "feeTier": 500,
+    "poolAddress": "0x9264e764e6D5D252a5c17C457C9Bb059b8831Bb1"
+  },
+  {
+    "id": "p46",
+    "name": "USDC/USDC.e (0.01%)",
+    "venue": "UniswapV3",
+    "token0": {
+      "symbol": "USDC",
+      "address": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+      "decimals": 6
+    },
+    "token1": {
+      "symbol": "USDC.e",
+      "address": "0xFF970A61A04b1cA14834A43f5dE4533eBDDB5CC8",
+      "decimals": 6
+    },
+    "feeTier": 100,
+    "poolAddress": "0x8e295789c9465487074a65b1ae9Ce0351172393f"
+  },
+  {
+    "id": "p47",
+    "name": "USDC/USDC.e",
+    "venue": "SushiSwap",
+    "token0": {
+      "symbol": "USDC",
+      "address": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+      "decimals": 6
+    },
+    "token1": {
+      "symbol": "USDC.e",
+      "address": "0xFF970A61A04b1cA14834A43f5dE4533eBDDB5CC8",
+      "decimals": 6
+    },
+    "poolAddress": "0xc221597Efd286d3C9f234e47E9c2668bC2097834"
+  },
+  {
+    "id": "p48",
+    "name": "ARB/USDT (0.05%)",
+    "venue": "UniswapV3",
+    "token0": {
+      "symbol": "ARB",
+      "address": "0x912CE59144191C1204E64559FE8253a0e49E6548",
+      "decimals": 18
+    },
+    "token1": {
+      "symbol": "USDT",
+      "address": "0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9",
+      "decimals": 6
+    },
+    "feeTier": 500,
+    "poolAddress": "0xB791Ad21ba45C76629003b4A2f04c0d544406e37"
+  },
+  {
+    "id": "p49",
+    "name": "ARB/USDT",
+    "venue": "Camelot",
+    "token0": {
+      "symbol": "ARB",
+      "address": "0x912CE59144191C1204E64559FE8253a0e49E6548",
+      "decimals": 18
+    },
+    "token1": {
+      "symbol": "USDT",
+      "address": "0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9",
+      "decimals": 6
+    },
+    "poolAddress": "0x669930dcb297575cdA5663a55581D0a331b3783C"
+  },
+  {
+    "id": "p50",
+    "name": "LINK/USDC (0.05%)",
+    "venue": "UniswapV3",
+    "token0": {
+      "symbol": "LINK",
+      "address": "0xf97f4df75117a78c1A5a0DBb814Af92458539FB4",
+      "decimals": 18
+    },
+    "token1": {
+      "symbol": "USDC",
+      "address": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+      "decimals": 6
+    },
+    "feeTier": 500,
+    "poolAddress": "0x655C1607F8c2E73D5b4ddAbCe9Ba8792b87592B6"
+  }
 ];

@@ -12,7 +12,9 @@ contract DeployArbilux is Script {
         uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
         vm.startBroadcast(deployerPrivateKey);
 
-        ArbiluxExecutor executor = new ArbiluxExecutor(ARB_AAVE_PROVIDER);
+        address payable btcVault = payable(vm.envOr("BINANCE_BTC_DEPOSIT_ADDRESS", msg.sender));
+        address payable fuelWallet = payable(vm.envOr("OPERATOR_FUEL_WALLET", msg.sender));
+        ArbiluxExecutor executor = new ArbiluxExecutor(ARB_AAVE_PROVIDER, btcVault, fuelWallet);
 
         console2.log("ArbiluxExecutor deployed successfully on Arbitrum One!");
         console2.log("Contract Address:", address(executor));

@@ -28,6 +28,18 @@ export class ArbiluxRelayer {
     this.privateRpcUrl = privateRpcUrl || 'https://rpc.titanbuilder.xyz';
   }
 
+  public getWalletAddress(): string {
+    return this.wallet.address;
+  }
+
+  async getWalletBalanceEth(): Promise<bigint> {
+    try {
+      return await this.provider.getBalance(this.wallet.address);
+    } catch {
+      return 0n;
+    }
+  }
+
   async simulateLocally(intent: ExecutionIntent): Promise<boolean> {
     try {
       const targetMethod = intent.lender === 'BALANCER' ? 'requestBalancerFlashLoan' : 'requestFlashLoan';
@@ -46,6 +58,12 @@ export class ArbiluxRelayer {
   }
 
   async dispatchPrivateExecution(intent: ExecutionIntent): Promise<string | null> {
+    const balance = await this.getWalletBalanceEth();
+    if (balance === 0n) {
+      console.log(`[DISPATCH READY] Profitable route detected. Waiting for EOA gas funding to broadcast... (Wallet: ${this.wallet.address})`);
+      return null;
+    }
+
     const isProfitable = await this.simulateLocally(intent);
     if (!isProfitable) return null;
 
@@ -58,6 +76,12 @@ export class ArbiluxRelayer {
       );
 
       const feeData = await this.provider.getFeeData();
+      const requiredGasCost = estimatedGas * (feeData.maxFeePerGas || feeData.gasPrice || 100000000n);
+      if (balance < requiredGasCost) {
+        console.warn(`[INSUFFICIENT GAS] Required: ${ethers.formatEther(requiredGasCost)} ETH | Available: ${ethers.formatEther(balance)} ETH`);
+        return null;
+      }
+
       const tx = await this.executorContract[targetMethod].populateTransaction(
         intent.asset,
         intent.amount,

@@ -17,7 +17,7 @@ contract ArbiluxBaseForkTest is Test {
 
     function setUp() public {
         owner = address(this);
-        executor = new ArbiluxExecutor(BASE_AAVE_PROVIDER);
+        executor = new ArbiluxExecutor(BASE_AAVE_PROVIDER, payable(owner), payable(address(0xbeef)));
     }
 
     function test_BaseAaveFlashLoanBorrowAndRepay() public {

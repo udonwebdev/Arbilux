@@ -13,7 +13,7 @@ contract ArbiluxSwapForkTest is Test {
     address constant USDC = 0xaf88d065e77c8cC2239327C5EDb3A432268e5831;
 
     function setUp() public {
-        executor = new ArbiluxExecutor(AAVE_PROVIDER);
+        executor = new ArbiluxExecutor(AAVE_PROVIDER, payable(address(this)), payable(address(0xbeef)));
     }
 
     function test_RevertWhenDEXSwapIsUnprofitable() public {

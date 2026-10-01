@@ -4,9 +4,22 @@ out/
 
 # Environment and sensitive keys
 .env
+.env*
 *.pem
 *.key
 serviceAccountKey.json
+config/keystore.json
+
+# Bot receipts and runtime logs
+bot/receipts/*.json
+bot/receipts/*.jsonl
+!bot/receipts/.gitkeep
+
+# Next.js & TypeScript build outputs
+.next/
+web/.next/
+bot/dist/
+dist/
 
 # Node dependencies and logs
 node_modules/

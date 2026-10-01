@@ -17,6 +17,18 @@ export interface TelemetryPayload {
     status: string;
     time: string;
   }[];
+  pools?: any[];
+  opportunities?: any[];
+  cumulativePaperPnlUsd?: number;
+  totalPaperTrades?: number;
+  paperJournal?: any[];
+  type?: string;
+  receipt?: any;
+  receipts?: any[];
+  executionMode?: 'LIVE_MAINNET' | 'SIMULATION';
+  walletBalanceEth?: string;
+  signerAddress?: string;
+  waitingForGasFunding?: boolean;
 }
 
 export class TelemetryBroadcaster {
